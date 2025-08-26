@@ -1,6 +1,8 @@
 mod audio_recorder;
+mod transcription;
 
 use audio_recorder::AudioRecorder;
+use transcription::WhisperTranscriber;
 use gpui::{
     App, Application, Bounds, Context, Window, WindowBounds, WindowOptions, div, point, prelude::*,
     px, rgb, size,
@@ -9,6 +11,7 @@ use gpui::{
 struct Voicy {
     recorder: AudioRecorder,
     state: RecordingState,
+    transcriber: Option<WhisperTranscriber>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -21,9 +24,22 @@ enum RecordingState {
 
 impl Voicy {
     fn new() -> Self {
+        // Initialize transcriber (may fail if model not found)
+        let transcriber = match WhisperTranscriber::new() {
+            Ok(t) => {
+                println!("✓ Transcriber initialized");
+                Some(t)
+            }
+            Err(e) => {
+                eprintln!("Warning: Could not initialize transcriber: {}", e);
+                None
+            }
+        };
+        
         Self {
             recorder: AudioRecorder::new(),
             state: RecordingState::Idle,
+            transcriber,
         }
     }
 
@@ -40,7 +56,38 @@ impl Voicy {
             RecordingState::Recording => {
                 let audio_data = self.recorder.stop_recording();
                 println!("Recorded {} samples", audio_data.len());
-                self.state = RecordingState::Idle;
+                
+                // Process transcription if transcriber is available
+                if let Some(transcriber) = &self.transcriber {
+                    self.state = RecordingState::Processing;
+                    cx.notify();
+                    
+                    // Clone the data for transcription
+                    let audio_for_transcription = audio_data.clone();
+                    
+                    // Run transcription in a separate thread to avoid blocking UI
+                    let transcriber_clone = transcriber.clone();
+                    std::thread::spawn(move || {
+                        println!("🎤 Transcribing audio...");
+                        match transcriber_clone.transcribe(audio_for_transcription) {
+                            Ok(text) => {
+                                println!("\n📝 Transcription:\n{}", text);
+                            }
+                            Err(e) => {
+                                eprintln!("❌ Transcription failed: {}", e);
+                            }
+                        }
+                    });
+                    
+                    // Reset state after a short delay
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                    });
+                    self.state = RecordingState::Idle;
+                } else {
+                    println!("⚠️  No transcriber available");
+                    self.state = RecordingState::Idle;
+                }
             }
             _ => {}
         }
