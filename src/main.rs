@@ -1,9 +1,19 @@
+mod audio_recorder;
+
 use gpui::{
     App, Application, Bounds, Context, Window, WindowBounds, WindowOptions, div, point, prelude::*,
     px, rgb, size,
 };
 
 struct Voicy;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum RecordingState {
+    Idle,
+    Recording,
+    Processing,
+    Error,
+}
 
 impl Render for Voicy {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {

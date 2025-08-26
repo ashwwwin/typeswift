@@ -10,3 +10,4 @@ cocoa = "0.25"                                           # For macOS-specific AP
 global-hotkey = "0.4"
 whisper-rs = "0.11"                                      # Rust bindings for whisper.cpp
 anyhow = "1.0.99"
+cpal = "0.16.0"
