@@ -2,15 +2,15 @@ mod audio_stream;
 mod mlx;
 
 use audio_stream::AudioStream;
-use mlx::MLXParakeet;
+use enigo::{Enigo, Keyboard, Settings};
 use gpui::{
     App, Application, Bounds, Context, Window, WindowBounds, WindowOptions, div, point, prelude::*,
     px, rgb, size,
 };
+use mlx::MLXParakeet;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use enigo::{Enigo, Keyboard, Settings};
 
 struct Voicy {
     audio_stream: Option<AudioStream>,
@@ -32,26 +32,15 @@ enum RecordingState {
 
 impl Voicy {
     fn new() -> Self {
-        // Initialize MLX Parakeet model
-        let mlx_model = match MLXParakeet::new() {
-            Ok(model) => {
-                println!("✓ MLX Parakeet model initialized");
-                Some(model)
-            }
-            Err(e) => {
-                eprintln!("Warning: Could not initialize MLX model: {}", e);
-                None
-            }
-        };
-        
+        // Don't load model on startup - wait until needed
         Self {
             audio_stream: None,
-            mlx_model,
+            mlx_model: None, // Start with no model loaded
             state: RecordingState::Idle,
             transcription_text: Arc::new(Mutex::new(String::new())),
             processing_thread: None,
             should_stop: Arc::new(Mutex::new(false)),
-            enable_typing: Arc::new(Mutex::new(true)),  // Enable typing by default
+            enable_typing: Arc::new(Mutex::new(true)), // Enable typing by default
         }
     }
 
@@ -66,12 +55,29 @@ impl Voicy {
             _ => {}
         }
     }
-    
+
     fn start_streaming(&mut self, cx: &mut Context<Self>) {
+        // Load model on demand if not already loaded
+        if self.mlx_model.is_none() {
+            println!("🚀 Loading MLX model on demand...");
+            match MLXParakeet::new() {
+                Ok(model) => {
+                    println!("✅ Model loaded successfully");
+                    self.mlx_model = Some(model);
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to load model: {}", e);
+                    self.state = RecordingState::Error;
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+
         if let Some(ref mlx_model) = self.mlx_model {
             // Get the required sample rate from the model
             let sample_rate = mlx_model.get_sample_rate();
-            
+
             // Initialize audio stream
             match AudioStream::new(sample_rate) {
                 Ok(stream) => {
@@ -82,11 +88,11 @@ impl Voicy {
                         cx.notify();
                         return;
                     }
-                    
+
                     // Start MLX streaming with context windows
-                    let left_context = 5;  // 5 seconds of left context
+                    let left_context = 5; // 5 seconds of left context
                     let right_context = 3; // 3 seconds of right context
-                    
+
                     if let Err(e) = mlx_model.start_streaming(left_context, right_context) {
                         eprintln!("Failed to start MLX streaming: {}", e);
                         stream.stop();
@@ -94,10 +100,10 @@ impl Voicy {
                         cx.notify();
                         return;
                     }
-                    
+
                     // Clear previous transcription
                     *self.transcription_text.lock().unwrap() = String::new();
-                    
+
                     // Set up the processing thread
                     *self.should_stop.lock().unwrap() = false;
                     let should_stop = self.should_stop.clone();
@@ -105,7 +111,7 @@ impl Voicy {
                     let enable_typing = self.enable_typing.clone();
                     let stream_clone = stream.clone();
                     let mlx_model_clone = mlx_model.clone();
-                    
+
                     // Start processing thread for continuous transcription
                     let handle = thread::spawn(move || {
                         Self::audio_processing_loop(
@@ -117,11 +123,11 @@ impl Voicy {
                             sample_rate,
                         );
                     });
-                    
+
                     self.audio_stream = Some(stream);
                     self.processing_thread = Some(handle);
                     self.state = RecordingState::Recording;
-                    
+
                     println!("🎙️ Started real-time transcription");
                 }
                 Err(e) => {
@@ -135,25 +141,25 @@ impl Voicy {
         }
         cx.notify();
     }
-    
+
     fn stop_streaming(&mut self, cx: &mut Context<Self>) {
         // Signal the processing thread to stop
         *self.should_stop.lock().unwrap() = true;
-        
+
         // Stop the audio stream
         if let Some(ref stream) = self.audio_stream {
             stream.stop();
         }
-        
+
         // Stop MLX streaming and get final transcription
         if let Some(ref mlx_model) = self.mlx_model {
             match mlx_model.stop_streaming() {
                 Ok(final_text) => {
                     if !final_text.is_empty() {
                         println!("\n📝 Final Transcription:\n{}", final_text);
-                        
+
                         // Final text is already typed during processing
-                        
+
                         *self.transcription_text.lock().unwrap() = final_text;
                     }
                 }
@@ -162,16 +168,30 @@ impl Voicy {
                 }
             }
         }
-        
+
         // Wait for processing thread to finish
         if let Some(handle) = self.processing_thread.take() {
             let _ = handle.join();
         }
-        
+
         self.audio_stream = None;
         self.state = RecordingState::Idle;
         println!("🛑 Stopped real-time transcription");
+
+        // Optional: Unload model after use to free RAM
+        // Uncomment if you want aggressive memory management
+        self.unload_model();
+
         cx.notify();
+    }
+
+    fn unload_model(&mut self) {
+        if self.mlx_model.is_some() {
+            println!("🧹 Unloading MLX model to free RAM...");
+            self.mlx_model = None;
+            // Python GC should collect it
+            println!("✅ Model unloaded");
+        }
     }
     fn audio_processing_loop(
         stream: AudioStream,
@@ -184,46 +204,52 @@ impl Voicy {
         // Calculate chunk size for processing (e.g., 0.5 seconds of audio)
         let chunk_duration_ms = 500;
         let chunk_size = (sample_rate as usize * chunk_duration_ms) / 1000;
-        
+
         // Initialize Enigo for keyboard control
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
-        
+
         println!("📊 Audio processing configuration:");
         println!("  - Sample rate: {} Hz", sample_rate);
-        println!("  - Chunk size: {} samples ({} ms)", chunk_size, chunk_duration_ms);
-        
+        println!(
+            "  - Chunk size: {} samples ({} ms)",
+            chunk_size, chunk_duration_ms
+        );
+
         let mut accumulated_audio = Vec::new();
-        
+
         // Buffer for continuous speech segments
         let mut speech_buffer: Vec<f32> = Vec::new();
         let mut in_speech = false;
         let mut silence_count = 0;
         let mut last_transcription = String::new();
-        
+
         loop {
             // Check if we should stop
             if *should_stop.lock().unwrap() {
                 break;
             }
-            
+
             // Read whatever is available from the stream
             let available = stream.read_chunk(chunk_size);
-            
+
             if !available.is_empty() {
                 accumulated_audio.extend(available);
             }
-            
+
             // Process when we have accumulated enough audio
             if accumulated_audio.len() >= chunk_size {
                 // Take exactly chunk_size samples for processing
                 let audio_chunk: Vec<f32> = accumulated_audio.drain(..chunk_size).collect();
-                
+
                 // Simple and effective VAD
-                let rms = (audio_chunk.iter().map(|&x| x * x).sum::<f32>() / audio_chunk.len() as f32).sqrt();
-                
-                // Simple threshold - if there's sound above ambient noise, it's probably speech
-                let is_speech = rms > 0.01;  // Simple fixed threshold that works well
-                
+                let rms = (audio_chunk.iter().map(|&x| x * x).sum::<f32>()
+                    / audio_chunk.len() as f32)
+                    .sqrt();
+
+                // Lower threshold to capture quieter speech
+                // Parakeet is good at ignoring noise, so we can be more sensitive
+                let is_speech = rms > 0.005; // More sensitive threshold
+
                 if is_speech {
                     if !in_speech {
                         // Starting new speech segment
@@ -232,37 +258,64 @@ impl Voicy {
                         speech_buffer.clear();
                         silence_count = 0;
                     }
-                    
+
                     // Add audio to buffer
                     speech_buffer.extend(&audio_chunk);
-                    
+
                     // Log audio characteristics every second
                     if speech_buffer.len() % sample_rate as usize == 0 {
-                        let max: f32 = speech_buffer.iter().map(|&x| x.abs()).fold(0.0f32, f32::max);
-                        let mean: f32 = speech_buffer.iter().sum::<f32>() / speech_buffer.len() as f32;
-                        println!("  📊 Buffer: {} samples, max: {:.4}, mean: {:.4}, DC: {:.4}", 
-                            speech_buffer.len(), max, mean.abs(), mean);
+                        let max: f32 = speech_buffer
+                            .iter()
+                            .map(|&x| x.abs())
+                            .fold(0.0f32, f32::max);
+                        let mean: f32 =
+                            speech_buffer.iter().sum::<f32>() / speech_buffer.len() as f32;
+                        println!(
+                            "  📊 Buffer: {} samples, max: {:.4}, mean: {:.4}, DC: {:.4}",
+                            speech_buffer.len(),
+                            max,
+                            mean.abs(),
+                            mean
+                        );
                     }
-                    
+
                     silence_count = 0;
-                    
                 } else if in_speech {
                     // We're in speech but hit silence
                     silence_count += 1;
-                    
+
                     // Still add to buffer in case it's a brief pause
                     speech_buffer.extend(&audio_chunk);
-                    
-                    // After 1 chunk of silence (500ms), process the utterance
-                    if silence_count >= 1 && !speech_buffer.is_empty() {
+
+                    // After 2 chunks of silence (1 second), process the utterance
+                    // This gives more natural pauses without cutting off mid-sentence
+                    if silence_count >= 2 && !speech_buffer.is_empty() {
                         // Analyze the audio before sending
-                        let max = speech_buffer.iter().map(|&x| x.abs()).fold(0.0f32, f32::max);
+                        let max = speech_buffer
+                            .iter()
+                            .map(|&x| x.abs())
+                            .fold(0.0f32, f32::max);
                         let mean = speech_buffer.iter().sum::<f32>() / speech_buffer.len() as f32;
                         let duration_sec = speech_buffer.len() as f32 / sample_rate as f32;
+
+                        println!(
+                            "  📦 Processing: {:.1}s, {} samples, max: {:.4}, mean: {:.4}",
+                            duration_sec,
+                            speech_buffer.len(),
+                            max,
+                            mean
+                        );
+
+                        // Send raw audio directly - model handles all preprocessing
+                        // No padding, no minimum length requirements
+                        let audio_to_process = speech_buffer.clone();
                         
-                        println!("  📦 Processing: {:.1}s, {} samples, max: {:.4}, mean: {:.4}", 
-                            duration_sec, speech_buffer.len(), max, mean);
-                        
+                        println!(
+                            "  📊 Sending: {} samples ({:.2}s) of raw audio",
+                            audio_to_process.len(),
+                            audio_to_process.len() as f32 / sample_rate as f32
+                        );
+
                         // Check for potential issues
                         if max < 0.01 {
                             println!("  ⚠️  WARNING: Very quiet audio (max < 0.01)");
@@ -273,12 +326,16 @@ impl Voicy {
                         if mean.abs() > 0.1 {
                             println!("  ⚠️  WARNING: High DC offset (mean = {:.4})", mean);
                         }
-                        
+
                         // Process the complete utterance
-                        match mlx_model.process_audio_chunk(speech_buffer.clone()) {
+                        match mlx_model.process_audio_chunk(audio_to_process) {
                             Ok(result) => {
-                                println!("  🔍 Result: text='{}', tokens={}", result.text, result.tokens.len());
-                                
+                                println!(
+                                    "  🔍 Result: text='{}', tokens={}",
+                                    result.text,
+                                    result.tokens.len()
+                                );
+
                                 if !result.text.is_empty() && result.text != last_transcription {
                                     // Only type if we have new text
                                     if *enable_typing.lock().unwrap() {
@@ -294,7 +351,7 @@ impl Voicy {
                                             enigo.text(&result.text).unwrap();
                                         }
                                     }
-                                    
+
                                     last_transcription = result.text.clone();
                                     *transcription_text.lock().unwrap() = result.text;
                                 }
@@ -303,7 +360,7 @@ impl Voicy {
                                 eprintln!("❌ Error: {}", e);
                             }
                         }
-                        
+
                         // Reset for next utterance
                         in_speech = false;
                         speech_buffer.clear();
@@ -311,11 +368,11 @@ impl Voicy {
                     }
                 }
             }
-            
+
             // Small sleep to avoid busy-waiting
             thread::sleep(Duration::from_millis(50));
         }
-        
+
         println!("\n✅ Processing complete");
     }
 }
@@ -331,8 +388,8 @@ impl Render for Voicy {
 
         let bg_color = match self.state {
             RecordingState::Recording => rgb(0xdc2626), // Red when streaming
-            RecordingState::Error => rgb(0x991b1b),      // Dark red for errors
-            _ => rgb(0x1f2937),                          // Dark gray when idle
+            RecordingState::Error => rgb(0x991b1b),     // Dark red for errors
+            _ => rgb(0x1f2937),                         // Dark gray when idle
         };
 
         div()
@@ -354,9 +411,12 @@ impl Render for Voicy {
             .text_xs()
             .text_color(rgb(0xffffff))
             .child(status_text)
-            .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, _event, _window, cx| {
-                this.toggle_recording(cx);
-            }))
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _event, _window, cx| {
+                    this.toggle_recording(cx);
+                }),
+            )
     }
 }
 

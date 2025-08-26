@@ -87,11 +87,16 @@ impl MLXParakeet {
                     max_amp
                 );
 
-                // Send raw audio to the model - it handles ALL preprocessing internally
-                // Just ensure we're not clipping
-                if max_amp > 1.0 {
+                // IMPORTANT: Send raw audio as-is to the model
+                // The model expects raw PCM and does ALL preprocessing:
+                // - Pre-emphasis (0.97)
+                // - Mel-spectrogram conversion  
+                // - Per-feature normalization
+                // - Windowing (25ms Hann windows)
+                // Only clip if absolutely necessary to prevent overflow
+                if max_amp > 1.5 {
                     println!(
-                        "    ⚠️  Clipping detected! Scaling down from {:.4} to 0.99",
+                        "    ⚠️  Extreme clipping! Scaling from {:.4} to 0.99",
                         max_amp
                     );
                     let scale = 0.99 / max_amp;
