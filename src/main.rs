@@ -9,24 +9,21 @@ impl Render for Voicy {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
-            .flex_col()
-            .gap_3()
             .bg(gpui::black())
-            .size(px(00.0))
+            .w_full()
+            .h_full()
             .justify_center()
             .items_center()
-            .shadow_lg()
-            .border_1()
             .border_color(rgb(0x0000ff))
-            .text_xl()
+            .text_sm()
             .text_color(rgb(0xffffff))
-            .child(div().flex().gap_2().child(div().size_8().bg(gpui::black())))
+            .child("Listening")
     }
 }
 
 fn main() {
     Application::new().run(|cx: &mut App| {
-        let window_size = size(px(100.), px(50.0));
+        let window_size = size(px(90.), px(39.0));
         let gap_from_bottom = px(70.);
 
         // Get the primary display
