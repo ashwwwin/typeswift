@@ -3,6 +3,10 @@ name = "voicy"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "test_recording"
+path = "src/test_recording.rs"
+
 [dependencies]
 gpui = { git = "https://github.com/zed-industries/zed" }
 enigo = "0.2"                                            # For keyboard/mouse control
@@ -12,3 +16,6 @@ whisper-rs = "0.11"                                      # Rust bindings for whi
 anyhow = "1.0.99"
 cpal = "0.16.0"
 dirs = "6.0.0"
+pyo3 = { version = "0.25.1", features = ["auto-initialize"] }
+ringbuf = "0.4"
+rubato = "0.16"
