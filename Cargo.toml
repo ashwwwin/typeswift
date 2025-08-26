@@ -1,0 +1,11 @@
+[package]
+name = "voicy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gpui = { git = "https://github.com/zed-industries/zed" }
+enigo = "0.2"                                            # For keyboard/mouse control
+cocoa = "0.25"                                           # For macOS-specific APIs
+global-hotkey = "0.4"
+whisper-rs = "0.11"                                      # Rust bindings for whisper.cpp
