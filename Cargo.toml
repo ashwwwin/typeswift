@@ -9,3 +9,4 @@ enigo = "0.2"                                            # For keyboard/mouse co
 cocoa = "0.25"                                           # For macOS-specific APIs
 global-hotkey = "0.4"
 whisper-rs = "0.11"                                      # Rust bindings for whisper.cpp
+anyhow = "1.0.99"
