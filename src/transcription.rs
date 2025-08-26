@@ -100,11 +100,12 @@ impl WhisperTranscriber {
 
         // Adjust for better accuracy
         params.set_temperature(0.0); // Deterministic
-        params.set_no_speech_thold(0.6);
+        params.set_no_speech_thold(0.3); // Lower threshold for better detection
         params.set_token_timestamps(false);
         
         // Additional quality settings
-        params.set_entropy_thold(2.4);
+        params.set_entropy_thold(2.0); // Lower for better detection
+        params.set_logprob_thold(-1.0); // More permissive
 
         params
     }
@@ -150,20 +151,22 @@ impl WhisperTranscriber {
         println!("  - DC offset removed: {:.6}", mean);
         println!("  - Max amplitude: {:.4}", max_amplitude);
         
-        // Normalize if the audio is too quiet or too loud
-        if max_amplitude > 0.0 && (max_amplitude < 0.1 || max_amplitude > 1.0) {
-            let scale = 0.95 / max_amplitude;
+        // Always normalize to ensure consistent amplitude
+        if max_amplitude > 0.001 {
+            let scale = 0.8 / max_amplitude; // Target 80% of max to avoid clipping
             for sample in centered.iter_mut() {
                 *sample *= scale;
             }
             println!("  - Normalized with scale factor: {:.4}", scale);
+        } else {
+            println!("  ⚠️  WARNING: Audio amplitude too low to process");
         }
         
         // Apply simple noise gate to reduce low-level noise
-        let noise_threshold = 0.01;
+        let noise_threshold = 0.005; // Lower threshold to preserve more speech
         for sample in centered.iter_mut() {
             if sample.abs() < noise_threshold {
-                *sample *= 0.1; // Reduce very quiet sounds
+                *sample *= 0.5; // Gentler reduction
             }
         }
         
