@@ -8,6 +8,7 @@ pub struct MLXParakeet {
     model: Arc<Mutex<Py<PyAny>>>,
     transcriber: Arc<Mutex<Option<Py<PyAny>>>>,
     sample_rate: u32,
+    last_finalized_count: Arc<Mutex<usize>>,  // Track processed tokens
 }
 
 impl MLXParakeet {
@@ -36,6 +37,7 @@ impl MLXParakeet {
                 model: Arc::new(Mutex::new(model.into())),
                 transcriber: Arc::new(Mutex::new(None)),
                 sample_rate,
+                last_finalized_count: Arc::new(Mutex::new(0)),
             })
         })
     }
@@ -56,6 +58,10 @@ impl MLXParakeet {
                 .call_method0("__enter__")?;
 
             *self.transcriber.lock().unwrap() = Some(transcriber.unbind());
+            
+            // Reset the finalized token counter
+            *self.last_finalized_count.lock().unwrap() = 0;
+            
             println!(
                 "🎙️ Streaming started with context: ({}, {})",
                 left_context, right_context
@@ -117,23 +123,23 @@ impl MLXParakeet {
                 // Add audio to the transcriber
                 transcriber_ref.call_method1("add_audio", (audio_array,))?;
                 
-                // Get current result
-                let result = transcriber_ref.getattr("result")?;
-
-                // Extract text
-                let text: String = result
-                    .getattr("text")?
-                    .extract()
-                    .unwrap_or_else(|_| String::new());
-
-                // Extract tokens with timestamps
+                // Get only NEW finalized tokens since last call
+                let mut new_text = String::new();
                 let mut tokens = Vec::new();
+                
                 if let Ok(finalized) = transcriber_ref.getattr("finalized_tokens") {
                     if let Ok(token_list) = finalized.extract::<Vec<Py<PyAny>>>() {
-                        for token_obj in token_list {
+                        let mut last_count = self.last_finalized_count.lock().unwrap();
+                        let current_count = token_list.len();
+                        
+                        // Process only NEW tokens since last check
+                        for token_obj in token_list.iter().skip(*last_count) {
                             let token_bound = token_obj.bind(py);
                             if let Ok(token_text) = token_bound.getattr("text") {
                                 if let Ok(text) = token_text.extract::<String>() {
+                                    // Accumulate new text
+                                    new_text.push_str(&text);
+                                    
                                     let start = token_bound
                                         .getattr("start")
                                         .and_then(|s| s.extract::<f32>())
@@ -151,6 +157,9 @@ impl MLXParakeet {
                                 }
                             }
                         }
+                        
+                        // Update the counter for next time
+                        *last_count = current_count;
                     }
                 }
 
@@ -162,7 +171,7 @@ impl MLXParakeet {
                     .unwrap_or(0);
 
                 Ok(TranscriptionResult {
-                    text,
+                    text: new_text,  // Return only NEW text, not cumulative
                     tokens,
                     draft_token_count: draft_count,
                 })
@@ -179,17 +188,34 @@ impl MLXParakeet {
             if let Some(transcriber) = transcriber_lock.take() {
                 let transcriber_ref = transcriber.bind(py);
 
-                // Get final result before closing
-                let result = transcriber_ref.getattr("result")?;
-                let final_text: String = result.getattr("text")?.extract()?;
+                // Get any remaining new tokens before closing
+                let mut final_new_text = String::new();
+                if let Ok(finalized) = transcriber_ref.getattr("finalized_tokens") {
+                    if let Ok(token_list) = finalized.extract::<Vec<Py<PyAny>>>() {
+                        let last_count = *self.last_finalized_count.lock().unwrap();
+                        
+                        // Get only the NEW tokens since last check
+                        for token_obj in token_list.iter().skip(last_count) {
+                            let token_bound = token_obj.bind(py);
+                            if let Ok(token_text) = token_bound.getattr("text") {
+                                if let Ok(text) = token_text.extract::<String>() {
+                                    final_new_text.push_str(&text);
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // Exit the context manager with proper None handling
                 let py_none = py.None();
                 let none_ref = py_none.bind(py);
                 transcriber_ref.call_method1("__exit__", (none_ref, none_ref, none_ref))?;
+                
+                // Reset the counter
+                *self.last_finalized_count.lock().unwrap() = 0;
 
                 println!("🛑 Streaming stopped");
-                Ok(final_text)
+                Ok(final_new_text)  // Return only new text, not cumulative
             } else {
                 Ok(String::new())
             }

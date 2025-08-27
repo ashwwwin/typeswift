@@ -154,16 +154,34 @@ impl Voicy {
             stream.stop();
         }
 
-        // Stop MLX streaming and get final transcription
+        // Stop MLX streaming and get any remaining text
         if let Some(ref mlx_model) = self.mlx_model {
             match mlx_model.stop_streaming() {
-                Ok(final_text) => {
-                    if !final_text.is_empty() {
-                        println!("\n📝 Final Transcription:\n{}", final_text);
-
-                        // Final text is already typed during processing
-
-                        *self.transcription_text.lock().unwrap() = final_text;
+                Ok(remaining_text) => {
+                    if !remaining_text.is_empty() {
+                        println!("\n📝 Remaining text:\n{}", remaining_text);
+                        
+                        // Type any remaining text that wasn't processed yet
+                        if self.config.output.enable_typing {
+                            if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
+                                // Add space if there was previous text
+                                let current_text = self.transcription_text.lock().unwrap();
+                                if self.config.output.add_space_between_utterances && !current_text.is_empty() {
+                                    let _ = enigo.text(" ");
+                                }
+                                drop(current_text);
+                                
+                                // Type the remaining text
+                                let _ = enigo.text(&remaining_text);
+                            }
+                        }
+                        
+                        // Append to transcription text
+                        let mut transcription = self.transcription_text.lock().unwrap();
+                        if !transcription.is_empty() {
+                            transcription.push(' ');
+                        }
+                        transcription.push_str(&remaining_text);
                     }
                 }
                 Err(e) => {
