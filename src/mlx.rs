@@ -59,7 +59,7 @@ impl MLXParakeet {
 
             *self.transcriber.lock().unwrap() = Some(transcriber.unbind());
             
-            // Reset the finalized token counter
+            // Reset the counter
             *self.last_finalized_count.lock().unwrap() = 0;
             
             println!(
@@ -123,14 +123,25 @@ impl MLXParakeet {
                 // Add audio to the transcriber
                 transcriber_ref.call_method1("add_audio", (audio_array,))?;
                 
-                // Get only NEW finalized tokens since last call
+                // Get both NEW tokens and FULL transcription
                 let mut new_text = String::new();
+                let mut full_text = String::new();
                 let mut tokens = Vec::new();
                 
                 if let Ok(finalized) = transcriber_ref.getattr("finalized_tokens") {
                     if let Ok(token_list) = finalized.extract::<Vec<Py<PyAny>>>() {
                         let mut last_count = self.last_finalized_count.lock().unwrap();
                         let current_count = token_list.len();
+                        
+                        // Build full text from ALL tokens (for correction detection)
+                        for token_obj in token_list.iter() {
+                            let token_bound = token_obj.bind(py);
+                            if let Ok(token_text) = token_bound.getattr("text") {
+                                if let Ok(text) = token_text.extract::<String>() {
+                                    full_text.push_str(&text);
+                                }
+                            }
+                        }
                         
                         // Process only NEW tokens since last check
                         for token_obj in token_list.iter().skip(*last_count) {
@@ -171,7 +182,8 @@ impl MLXParakeet {
                     .unwrap_or(0);
 
                 Ok(TranscriptionResult {
-                    text: new_text,  // Return only NEW text, not cumulative
+                    text: new_text,  // Return only NEW text
+                    full_text,  // Full transcription for corrections
                     tokens,
                     draft_token_count: draft_count,
                 })
@@ -229,7 +241,9 @@ impl MLXParakeet {
 
 #[derive(Debug, Clone)]
 pub struct TranscriptionResult {
-    pub text: String,
+    pub text: String,  // New text only
+    pub full_text: String,  // Full transcription for corrections
+    #[allow(dead_code)]
     pub tokens: Vec<Token>,
     #[allow(dead_code)]
     pub draft_token_count: usize,

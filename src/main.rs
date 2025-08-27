@@ -1,9 +1,11 @@
 mod audio_stream;
 mod config;
 mod mlx;
+mod streaming_processor;
 
 use audio_stream::AudioStream;
 use config::Config;
+use streaming_processor::{StreamingProcessor, vad_processing_loop};
 use enigo::{Enigo, Keyboard, Settings};
 use gpui::{
     App, Application, Bounds, Context, Window, WindowBounds, WindowOptions, div, point, prelude::*,
@@ -12,7 +14,6 @@ use gpui::{
 use mlx::MLXParakeet;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 
 struct Voicy {
     config: Config,
@@ -115,16 +116,28 @@ impl Voicy {
                     let stream_clone = stream.clone();
                     let mlx_model_clone = mlx_model.clone();
 
-                    // Start processing thread for continuous transcription
+                    // Start processing thread - choose mode based on config
                     let handle = thread::spawn(move || {
-                        Self::audio_processing_loop(
-                            stream_clone,
-                            mlx_model_clone,
-                            transcription_text,
-                            should_stop,
-                            config_clone,
-                            sample_rate,
-                        );
+                        if config_clone.streaming.enabled {
+                            // Use real-time streaming processor
+                            let processor = StreamingProcessor::new(config_clone.clone());
+                            processor.process_loop(
+                                stream_clone,
+                                mlx_model_clone,
+                                transcription_text,
+                                should_stop,
+                            );
+                        } else {
+                            // Use VAD-based processor
+                            vad_processing_loop(
+                                stream_clone,
+                                mlx_model_clone,
+                                transcription_text,
+                                should_stop,
+                                config_clone,
+                                sample_rate,
+                            );
+                        }
                     });
 
                     self.audio_stream = Some(stream);
@@ -215,231 +228,6 @@ impl Voicy {
             println!("🧹 Unloading MLX model to free RAM...");
             self.mlx_model = None;
             println!("✅ Model unloaded");
-        }
-    }
-    fn audio_processing_loop(
-        stream: AudioStream,
-        mlx_model: MLXParakeet,
-        transcription_text: Arc<Mutex<String>>,
-        should_stop: Arc<Mutex<bool>>,
-        config: Config,
-        sample_rate: u32,
-    ) {
-        // Calculate chunk size for processing from config
-        let chunk_duration_ms = config.audio.chunk_duration_ms;
-        let chunk_size = (sample_rate as usize * chunk_duration_ms as usize) / 1000;
-
-        // Initialize Enigo for keyboard control
-        let mut enigo = Enigo::new(&Settings::default()).unwrap();
-
-        if config.output.console_logging {
-            println!("📊 Audio processing configuration:");
-            println!("  - Sample rate: {} Hz", sample_rate);
-            println!(
-                "  - Chunk size: {} samples ({} ms)",
-                chunk_size, chunk_duration_ms
-            );
-        }
-
-        let mut accumulated_audio = Vec::new();
-
-        // Buffer for continuous speech segments
-        let mut speech_buffer: Vec<f32> = Vec::new();
-        let mut in_speech = false;
-        let mut silence_count = 0;
-        let mut last_transcription = String::new();
-
-        loop {
-            // Check if we should stop
-            if *should_stop.lock().unwrap() {
-                break;
-            }
-
-            // Read whatever is available from the stream
-            let available = stream.read_chunk(chunk_size);
-
-            if !available.is_empty() {
-                accumulated_audio.extend(available);
-            }
-
-            // Process when we have accumulated enough audio
-            if accumulated_audio.len() >= chunk_size {
-                // Take exactly chunk_size samples for processing
-                let audio_chunk: Vec<f32> = accumulated_audio.drain(..chunk_size).collect();
-
-                // Simple and effective VAD
-                let rms = (audio_chunk.iter().map(|&x| x * x).sum::<f32>()
-                    / audio_chunk.len() as f32)
-                    .sqrt();
-
-                // Speech detection using configured threshold
-                let is_speech = rms > config.vad.speech_threshold;
-
-                if is_speech {
-                    if !in_speech {
-                        // Starting new speech segment
-                        if config.output.console_logging {
-                            println!("\n🎤 Listening... (RMS: {:.4})", rms);
-                        }
-                        in_speech = true;
-                        speech_buffer.clear();
-                    }
-
-                    // Add audio to buffer
-                    speech_buffer.extend(&audio_chunk);
-
-                    // Log audio characteristics every second
-                    if config.output.console_logging && speech_buffer.len() % sample_rate as usize == 0 {
-                        let max: f32 = speech_buffer
-                            .iter()
-                            .map(|&x| x.abs())
-                            .fold(0.0f32, f32::max);
-                        let mean: f32 =
-                            speech_buffer.iter().sum::<f32>() / speech_buffer.len() as f32;
-                        println!(
-                            "  📊 Buffer: {} samples, max: {:.4}, mean: {:.4}, DC: {:.4}",
-                            speech_buffer.len(),
-                            max,
-                            mean.abs(),
-                            mean
-                        );
-                    }
-                } else if in_speech {
-                    // We're in speech but hit silence
-                    silence_count += 1;
-
-                    // Still add to buffer in case it's a brief pause
-                    speech_buffer.extend(&audio_chunk);
-
-                    // Process utterance after configured silence duration
-                    let silence_chunks = config.vad.silence_duration_ms / chunk_duration_ms;
-                    let min_samples = (sample_rate as usize * config.vad.min_speech_duration_ms as usize) / 1000;
-                    if silence_count >= silence_chunks && speech_buffer.len() >= min_samples {
-                        // Analyze and clean the audio before sending
-                        let mean = speech_buffer.iter().sum::<f32>() / speech_buffer.len() as f32;
-                        
-                        // Remove DC offset if enabled and detected
-                        let mut audio_to_process = if config.vad.enable_dc_offset_removal && mean.abs() > 0.01 {
-                            if config.output.console_logging {
-                                println!("  ⚡ Removing DC offset (mean = {:.4})", mean);
-                            }
-                            speech_buffer.iter().map(|&x| x - mean).collect()
-                        } else {
-                            speech_buffer.clone()
-                        };
-                        
-                        let max = audio_to_process
-                            .iter()
-                            .map(|&x| x.abs())
-                            .fold(0.0f32, f32::max);
-                        
-                        // Normalize audio if enabled
-                        if config.vad.enable_normalization && max > 0.01 {
-                            // Target 0.95 amplitude (nearly full scale)
-                            let target_amplitude = 0.95;
-                            let scale = target_amplitude / max;
-                            if config.output.console_logging {
-                                println!("  ⚡ Normalizing audio (max: {:.4} -> {:.2})", max, target_amplitude);
-                            }
-                            audio_to_process.iter_mut().for_each(|s| *s *= scale);
-                        } else if max <= 0.01 && config.output.console_logging {
-                            println!("  ⚠️  Audio too quiet to process (max: {:.4})", max);
-                        }
-                        
-                        let duration_sec = audio_to_process.len() as f32 / sample_rate as f32;
-
-                        if config.output.console_logging {
-                            println!(
-                                "  📦 Processing: {:.1}s, {} samples, max: {:.4}",
-                                duration_sec,
-                                audio_to_process.len(),
-                                max
-                            );
-                        }
-
-                        if config.output.console_logging {
-                            println!(
-                                "  📊 Sending: {} samples ({:.2}s) of processed audio",
-                                audio_to_process.len(),
-                                audio_to_process.len() as f32 / sample_rate as f32
-                            );
-                        }
-
-                        // Warn about quiet audio
-                        if max < 0.01 && config.output.console_logging {
-                            println!("  ⚠️  WARNING: Very quiet audio (max < 0.01)");
-                        }
-
-                        // Process the complete utterance
-                        match mlx_model.process_audio_chunk(audio_to_process) {
-                            Ok(result) => {
-                                if config.output.console_logging {
-                                    println!(
-                                        "  🔍 Result: text='{}', tokens={}",
-                                        result.text,
-                                        result.tokens.len()
-                                    );
-                                }
-
-                                if !result.text.is_empty() {
-                                    // Clean the transcription text
-                                    let cleaned_text = result.text.trim();
-                                    
-                                    if !cleaned_text.is_empty() {
-                                        if config.output.console_logging {
-                                            println!("  📝 Transcription: {}", cleaned_text);
-                                        }
-                                        
-                                        // Type the text if typing is enabled
-                                        if config.output.enable_typing {
-                                            // Add a space between utterances if configured
-                                            if config.output.add_space_between_utterances && !last_transcription.is_empty() {
-                                                enigo.text(" ").unwrap();
-                                            }
-                                            
-                                            if config.output.console_logging {
-                                                println!("  ✅ Typing: {}", cleaned_text);
-                                            }
-                                            if let Err(e) = enigo.text(cleaned_text) {
-                                                if config.output.console_logging {
-                                                    eprintln!("  ❌ Failed to type text: {}", e);
-                                                }
-                                            }
-                                        }
-                                        
-                                        last_transcription = cleaned_text.to_string();
-                                        *transcription_text.lock().unwrap() = cleaned_text.to_string();
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("❌ Error: {}", e);
-                            }
-                        }
-
-                        // Reset for next utterance
-                        in_speech = false;
-                        speech_buffer.clear();
-                        silence_count = 0;
-                        
-                    } else if silence_count >= silence_chunks {
-                        // Too short, discard
-                        if config.output.console_logging {
-                            println!("  🚫 Discarding short audio segment ({} samples)", speech_buffer.len());
-                        }
-                        in_speech = false;
-                        speech_buffer.clear();
-                        silence_count = 0;
-                    }
-                }
-            }
-
-            // Small sleep to avoid busy-waiting
-            thread::sleep(Duration::from_millis(50));
-        }
-
-        if config.output.console_logging {
-            println!("\n✅ Processing complete");
         }
     }
 }

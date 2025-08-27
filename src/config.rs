@@ -8,6 +8,7 @@ use std::path::PathBuf;
 pub struct Config {
     pub audio: AudioConfig,
     pub vad: VadConfig,
+    pub streaming: StreamingConfig,
     pub model: ModelConfig,
     pub ui: UiConfig,
     pub output: OutputConfig,
@@ -30,11 +31,22 @@ pub enum ResamplerQuality {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VadConfig {
+    pub enabled: bool, // Enable VAD-based processing (vs continuous)
     pub speech_threshold: f32,
     pub silence_duration_ms: u32,
     pub min_speech_duration_ms: u32,
     pub enable_dc_offset_removal: bool,
     pub enable_normalization: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamingConfig {
+    pub enabled: bool,               // Enable continuous streaming mode
+    pub rolling_buffer_seconds: f32, // Keep last N seconds of audio
+    pub process_interval_ms: u32,    // Process every N milliseconds
+    pub min_initial_audio_ms: u32,   // Wait for N ms before first inference
+    pub lookahead_tokens: usize,     // Keep last N tokens tentative
+    pub confidence_threshold: f32,   // Finalize tokens above this confidence
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,11 +82,20 @@ impl Default for Config {
                 resampler_quality: ResamplerQuality::High,
             },
             vad: VadConfig {
+                enabled: false, // Disable VAD for streaming mode
                 speech_threshold: 0.003,
                 silence_duration_ms: 500,
                 min_speech_duration_ms: 500,
                 enable_dc_offset_removal: true,
                 enable_normalization: true,
+            },
+            streaming: StreamingConfig {
+                enabled: true, // Enable real-time streaming
+                rolling_buffer_seconds: 10.0,
+                process_interval_ms: 500, // Process 10x per second for smoother typing
+                min_initial_audio_ms: 500, // Start faster
+                lookahead_tokens: 3,
+                confidence_threshold: 0.85,
             },
             model: ModelConfig {
                 model_name: "mlx-community/parakeet-tdt-0.6b-v2".to_string(),
