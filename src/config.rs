@@ -92,25 +92,25 @@ impl Default for Config {
                 resampler_quality: ResamplerQuality::High,
             },
             vad: VadConfig {
-                enabled: true, // Enable VAD for better quality
-                speech_threshold: 0.5, // Silero VAD recommended threshold
-                silence_duration_ms: 800, // Wait for natural pauses
-                min_speech_duration_ms: 250, // Filter out very short sounds
+                enabled: false, // Disable VAD for streaming mode
+                speech_threshold: 0.003,
+                silence_duration_ms: 500,
+                min_speech_duration_ms: 500,
                 enable_dc_offset_removal: true,
                 enable_normalization: true,
             },
             streaming: StreamingConfig {
                 enabled: false, // true = type while speaking, false = type after release
-                rolling_buffer_seconds: 20.0, // Larger buffer for context
-                process_interval_ms: 2000, // Process larger chunks (2 seconds)
-                min_initial_audio_ms: 1000, // Wait for 1 second before processing
-                lookahead_tokens: 5, // More lookahead for better accuracy
+                rolling_buffer_seconds: 10.0,
+                process_interval_ms: 500, // Process every 500ms for calmer typing
+                min_initial_audio_ms: 500, // Wait for initial audio chunk
+                lookahead_tokens: 3,
                 confidence_threshold: 0.85,
             },
             model: ModelConfig {
                 model_name: "mlx-community/parakeet-tdt-0.6b-v2".to_string(),
-                left_context_seconds: 256, // Use frames as recommended (256 frames)
-                right_context_seconds: 256, // Symmetrical context for best results
+                left_context_seconds: 5,
+                right_context_seconds: 3,
                 keep_loaded: true,
             },
             ui: UiConfig {
