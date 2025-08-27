@@ -205,10 +205,12 @@ impl MLXParakeet {
 pub struct TranscriptionResult {
     pub text: String,
     pub tokens: Vec<Token>,
+    #[allow(dead_code)]
     pub draft_token_count: usize,
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Token {
     pub text: String,
     pub start: f32,

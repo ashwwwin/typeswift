@@ -8,6 +8,7 @@ pub struct AudioStream {
     consumer: Arc<Mutex<HeapCons<f32>>>,
     sample_rate: u32,
     is_playing: Arc<Mutex<bool>>,
+    // Stream is not Send, so we manage it differently
 }
 
 impl Clone for AudioStream {
@@ -139,9 +140,10 @@ impl AudioStream {
         // Start the stream immediately but control recording with is_playing flag
         stream.play()?;
         
-        // Keep the stream alive by leaking it (it will run until the program exits)
+        // Keep the stream alive for the duration of the program
+        // This is necessary because Stream is !Send and can't be stored in Arc
         Box::leak(Box::new(stream));
-
+        
         Ok(Self {
             consumer: Arc::new(Mutex::new(consumer)),
             sample_rate: target_sample_rate,

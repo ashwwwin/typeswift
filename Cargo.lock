@@ -6187,6 +6187,8 @@ dependencies = [
  "pyo3",
  "ringbuf",
  "rubato",
+ "serde",
+ "toml 0.8.23",
  "whisper-rs",
 ]
 

@@ -1,7 +1,9 @@
 mod audio_stream;
+mod config;
 mod mlx;
 
 use audio_stream::AudioStream;
+use config::Config;
 use enigo::{Enigo, Keyboard, Settings};
 use gpui::{
     App, Application, Bounds, Context, Window, WindowBounds, WindowOptions, div, point, prelude::*,
@@ -13,34 +15,35 @@ use std::thread;
 use std::time::Duration;
 
 struct Voicy {
+    config: Config,
     audio_stream: Option<AudioStream>,
     mlx_model: Option<MLXParakeet>,
     state: RecordingState,
     transcription_text: Arc<Mutex<String>>,
     processing_thread: Option<thread::JoinHandle<()>>,
     should_stop: Arc<Mutex<bool>>,
-    enable_typing: Arc<Mutex<bool>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum RecordingState {
     Idle,
     Recording,
-    Processing,
     Error,
 }
 
 impl Voicy {
     fn new() -> Self {
+        let config = Config::load().unwrap_or_default();
+        
         // Don't load model on startup - wait until needed
         Self {
+            config,
             audio_stream: None,
             mlx_model: None, // Start with no model loaded
             state: RecordingState::Idle,
             transcription_text: Arc::new(Mutex::new(String::new())),
             processing_thread: None,
             should_stop: Arc::new(Mutex::new(false)),
-            enable_typing: Arc::new(Mutex::new(true)), // Enable typing by default
         }
     }
 
@@ -89,9 +92,9 @@ impl Voicy {
                         return;
                     }
 
-                    // Start MLX streaming with context windows
-                    let left_context = 5; // 5 seconds of left context
-                    let right_context = 3; // 3 seconds of right context
+                    // Start MLX streaming with context windows from config
+                    let left_context = self.config.model.left_context_seconds;
+                    let right_context = self.config.model.right_context_seconds;
 
                     if let Err(e) = mlx_model.start_streaming(left_context, right_context) {
                         eprintln!("Failed to start MLX streaming: {}", e);
@@ -108,7 +111,7 @@ impl Voicy {
                     *self.should_stop.lock().unwrap() = false;
                     let should_stop = self.should_stop.clone();
                     let transcription_text = self.transcription_text.clone();
-                    let enable_typing = self.enable_typing.clone();
+                    let config_clone = self.config.clone();
                     let stream_clone = stream.clone();
                     let mlx_model_clone = mlx_model.clone();
 
@@ -119,7 +122,7 @@ impl Voicy {
                             mlx_model_clone,
                             transcription_text,
                             should_stop,
-                            enable_typing,
+                            config_clone,
                             sample_rate,
                         );
                     });
@@ -178,18 +181,21 @@ impl Voicy {
         self.state = RecordingState::Idle;
         println!("🛑 Stopped real-time transcription");
 
-        // Optional: Unload model after use to free RAM
-        // Uncomment if you want aggressive memory management
-        self.unload_model();
+        // Optionally unload model based on config
+        if !self.config.model.keep_loaded {
+            self.unload_model();
+        }
 
         cx.notify();
     }
 
+    #[allow(dead_code)]
     fn unload_model(&mut self) {
+        // Keep model loaded for better performance
+        // Only unload if explicitly needed for memory management
         if self.mlx_model.is_some() {
             println!("🧹 Unloading MLX model to free RAM...");
             self.mlx_model = None;
-            // Python GC should collect it
             println!("✅ Model unloaded");
         }
     }
@@ -198,22 +204,24 @@ impl Voicy {
         mlx_model: MLXParakeet,
         transcription_text: Arc<Mutex<String>>,
         should_stop: Arc<Mutex<bool>>,
-        enable_typing: Arc<Mutex<bool>>,
+        config: Config,
         sample_rate: u32,
     ) {
-        // Calculate chunk size for processing (e.g., 0.5 seconds of audio)
-        let chunk_duration_ms = 500;
-        let chunk_size = (sample_rate as usize * chunk_duration_ms) / 1000;
+        // Calculate chunk size for processing from config
+        let chunk_duration_ms = config.audio.chunk_duration_ms;
+        let chunk_size = (sample_rate as usize * chunk_duration_ms as usize) / 1000;
 
         // Initialize Enigo for keyboard control
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
 
-        println!("📊 Audio processing configuration:");
-        println!("  - Sample rate: {} Hz", sample_rate);
-        println!(
-            "  - Chunk size: {} samples ({} ms)",
-            chunk_size, chunk_duration_ms
-        );
+        if config.output.console_logging {
+            println!("📊 Audio processing configuration:");
+            println!("  - Sample rate: {} Hz", sample_rate);
+            println!(
+                "  - Chunk size: {} samples ({} ms)",
+                chunk_size, chunk_duration_ms
+            );
+        }
 
         let mut accumulated_audio = Vec::new();
 
@@ -246,24 +254,24 @@ impl Voicy {
                     / audio_chunk.len() as f32)
                     .sqrt();
 
-                // Balanced threshold for speech detection
-                // Too low = noise, too high = misses speech
-                let is_speech = rms > 0.003; // Balanced threshold
+                // Speech detection using configured threshold
+                let is_speech = rms > config.vad.speech_threshold;
 
                 if is_speech {
                     if !in_speech {
                         // Starting new speech segment
-                        println!("\n🎤 Listening... (RMS: {:.4})", rms);
+                        if config.output.console_logging {
+                            println!("\n🎤 Listening... (RMS: {:.4})", rms);
+                        }
                         in_speech = true;
                         speech_buffer.clear();
-                        silence_count = 0;
                     }
 
                     // Add audio to buffer
                     speech_buffer.extend(&audio_chunk);
 
                     // Log audio characteristics every second
-                    if speech_buffer.len() % sample_rate as usize == 0 {
+                    if config.output.console_logging && speech_buffer.len() % sample_rate as usize == 0 {
                         let max: f32 = speech_buffer
                             .iter()
                             .map(|&x| x.abs())
@@ -278,8 +286,6 @@ impl Voicy {
                             mean
                         );
                     }
-
-                    silence_count = 0;
                 } else if in_speech {
                     // We're in speech but hit silence
                     silence_count += 1;
@@ -287,17 +293,18 @@ impl Voicy {
                     // Still add to buffer in case it's a brief pause
                     speech_buffer.extend(&audio_chunk);
 
-                    // After 1.5 seconds of silence (3 chunks), process the utterance
-                    // This helps capture complete thoughts
-                    // Also require minimum audio length (0.5 seconds) to avoid noise
-                    let min_samples = (sample_rate as usize * 500) / 1000; // 0.5 seconds
-                    if silence_count >= 3 && speech_buffer.len() >= min_samples {
+                    // Process utterance after configured silence duration
+                    let silence_chunks = config.vad.silence_duration_ms / chunk_duration_ms;
+                    let min_samples = (sample_rate as usize * config.vad.min_speech_duration_ms as usize) / 1000;
+                    if silence_count >= silence_chunks && speech_buffer.len() >= min_samples {
                         // Analyze and clean the audio before sending
                         let mean = speech_buffer.iter().sum::<f32>() / speech_buffer.len() as f32;
                         
-                        // Remove DC offset if detected
-                        let mut audio_to_process = if mean.abs() > 0.01 {
-                            println!("  ⚡ Removing DC offset (mean = {:.4})", mean);
+                        // Remove DC offset if enabled and detected
+                        let mut audio_to_process = if config.vad.enable_dc_offset_removal && mean.abs() > 0.01 {
+                            if config.output.console_logging {
+                                println!("  ⚡ Removing DC offset (mean = {:.4})", mean);
+                            }
                             speech_buffer.iter().map(|&x| x - mean).collect()
                         } else {
                             speech_buffer.clone()
@@ -308,63 +315,77 @@ impl Voicy {
                             .map(|&x| x.abs())
                             .fold(0.0f32, f32::max);
                         
-                        // Always normalize audio to full scale for model
-                        if max > 0.01 {
+                        // Normalize audio if enabled
+                        if config.vad.enable_normalization && max > 0.01 {
                             // Target 0.95 amplitude (nearly full scale)
                             let target_amplitude = 0.95;
                             let scale = target_amplitude / max;
-                            println!("  ⚡ Normalizing audio (max: {:.4} -> {:.2})", max, target_amplitude);
+                            if config.output.console_logging {
+                                println!("  ⚡ Normalizing audio (max: {:.4} -> {:.2})", max, target_amplitude);
+                            }
                             audio_to_process.iter_mut().for_each(|s| *s *= scale);
-                        } else {
+                        } else if max <= 0.01 && config.output.console_logging {
                             println!("  ⚠️  Audio too quiet to process (max: {:.4})", max);
                         }
                         
                         let duration_sec = audio_to_process.len() as f32 / sample_rate as f32;
 
-                        println!(
-                            "  📦 Processing: {:.1}s, {} samples, max: {:.4}",
-                            duration_sec,
-                            audio_to_process.len(),
-                            max
-                        );
+                        if config.output.console_logging {
+                            println!(
+                                "  📦 Processing: {:.1}s, {} samples, max: {:.4}",
+                                duration_sec,
+                                audio_to_process.len(),
+                                max
+                            );
+                        }
 
-                        println!(
-                            "  📊 Sending: {} samples ({:.2}s) of processed audio",
-                            audio_to_process.len(),
-                            audio_to_process.len() as f32 / sample_rate as f32
-                        );
+                        if config.output.console_logging {
+                            println!(
+                                "  📊 Sending: {} samples ({:.2}s) of processed audio",
+                                audio_to_process.len(),
+                                audio_to_process.len() as f32 / sample_rate as f32
+                            );
+                        }
 
                         // Warn about quiet audio
-                        if max < 0.01 {
+                        if max < 0.01 && config.output.console_logging {
                             println!("  ⚠️  WARNING: Very quiet audio (max < 0.01)");
                         }
 
                         // Process the complete utterance
                         match mlx_model.process_audio_chunk(audio_to_process) {
                             Ok(result) => {
-                                println!(
-                                    "  🔍 Result: text='{}', tokens={}",
-                                    result.text,
-                                    result.tokens.len()
-                                );
+                                if config.output.console_logging {
+                                    println!(
+                                        "  🔍 Result: text='{}', tokens={}",
+                                        result.text,
+                                        result.tokens.len()
+                                    );
+                                }
 
                                 if !result.text.is_empty() {
                                     // Clean the transcription text
                                     let cleaned_text = result.text.trim();
                                     
                                     if !cleaned_text.is_empty() {
-                                        println!("  📝 Transcription: {}", cleaned_text);
+                                        if config.output.console_logging {
+                                            println!("  📝 Transcription: {}", cleaned_text);
+                                        }
                                         
                                         // Type the text if typing is enabled
-                                        if *enable_typing.lock().unwrap() {
-                                            // Add a space between utterances for natural flow
-                                            if !last_transcription.is_empty() {
+                                        if config.output.enable_typing {
+                                            // Add a space between utterances if configured
+                                            if config.output.add_space_between_utterances && !last_transcription.is_empty() {
                                                 enigo.text(" ").unwrap();
                                             }
                                             
-                                            println!("  ✅ Typing: {}", cleaned_text);
+                                            if config.output.console_logging {
+                                                println!("  ✅ Typing: {}", cleaned_text);
+                                            }
                                             if let Err(e) = enigo.text(cleaned_text) {
-                                                eprintln!("  ❌ Failed to type text: {}", e);
+                                                if config.output.console_logging {
+                                                    eprintln!("  ❌ Failed to type text: {}", e);
+                                                }
                                             }
                                         }
                                         
@@ -383,9 +404,11 @@ impl Voicy {
                         speech_buffer.clear();
                         silence_count = 0;
                         
-                    } else if silence_count >= 3 {
+                    } else if silence_count >= silence_chunks {
                         // Too short, discard
-                        println!("  🚫 Discarding short audio segment ({} samples)", speech_buffer.len());
+                        if config.output.console_logging {
+                            println!("  🚫 Discarding short audio segment ({} samples)", speech_buffer.len());
+                        }
                         in_speech = false;
                         speech_buffer.clear();
                         silence_count = 0;
@@ -397,7 +420,9 @@ impl Voicy {
             thread::sleep(Duration::from_millis(50));
         }
 
-        println!("\n✅ Processing complete");
+        if config.output.console_logging {
+            println!("\n✅ Processing complete");
+        }
     }
 }
 
@@ -406,7 +431,6 @@ impl Render for Voicy {
         let status_text = match self.state {
             RecordingState::Idle => "Click to start streaming",
             RecordingState::Recording => "🔴 Streaming... (click to stop)",
-            RecordingState::Processing => "Processing...",
             RecordingState::Error => "❌ Error occurred",
         };
 
@@ -446,8 +470,9 @@ impl Render for Voicy {
 
 fn main() {
     Application::new().run(|cx: &mut App| {
-        let window_size = size(px(90.), px(39.0));
-        let gap_from_bottom = px(70.);
+        let config = Config::load().unwrap_or_default();
+        let window_size = size(px(config.ui.window_width), px(config.ui.window_height));
+        let gap_from_bottom = px(config.ui.gap_from_bottom);
 
         // Get the primary display
         let displays = cx.displays();
