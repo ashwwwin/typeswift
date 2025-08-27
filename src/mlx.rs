@@ -116,7 +116,7 @@ impl MLXParakeet {
 
                 // Add audio to the transcriber
                 transcriber_ref.call_method1("add_audio", (audio_array,))?;
-
+                
                 // Get current result
                 let result = transcriber_ref.getattr("result")?;
 

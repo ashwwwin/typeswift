@@ -101,7 +101,7 @@ impl Voicy {
                         return;
                     }
 
-                    // Clear previous transcription
+                    // Clear previous transcription  
                     *self.transcription_text.lock().unwrap() = String::new();
 
                     // Set up the processing thread
@@ -246,9 +246,9 @@ impl Voicy {
                     / audio_chunk.len() as f32)
                     .sqrt();
 
-                // Lower threshold to capture quieter speech
-                // Parakeet is good at ignoring noise, so we can be more sensitive
-                let is_speech = rms > 0.005; // More sensitive threshold
+                // Balanced threshold for speech detection
+                // Too low = noise, too high = misses speech
+                let is_speech = rms > 0.003; // Balanced threshold
 
                 if is_speech {
                     if !in_speech {
@@ -287,44 +287,56 @@ impl Voicy {
                     // Still add to buffer in case it's a brief pause
                     speech_buffer.extend(&audio_chunk);
 
-                    // After 2 chunks of silence (1 second), process the utterance
-                    // This gives more natural pauses without cutting off mid-sentence
-                    if silence_count >= 2 && !speech_buffer.is_empty() {
-                        // Analyze the audio before sending
-                        let max = speech_buffer
+                    // After 1.5 seconds of silence (3 chunks), process the utterance
+                    // This helps capture complete thoughts
+                    // Also require minimum audio length (0.5 seconds) to avoid noise
+                    let min_samples = (sample_rate as usize * 500) / 1000; // 0.5 seconds
+                    if silence_count >= 3 && speech_buffer.len() >= min_samples {
+                        // Analyze and clean the audio before sending
+                        let mean = speech_buffer.iter().sum::<f32>() / speech_buffer.len() as f32;
+                        
+                        // Remove DC offset if detected
+                        let mut audio_to_process = if mean.abs() > 0.01 {
+                            println!("  ⚡ Removing DC offset (mean = {:.4})", mean);
+                            speech_buffer.iter().map(|&x| x - mean).collect()
+                        } else {
+                            speech_buffer.clone()
+                        };
+                        
+                        let max = audio_to_process
                             .iter()
                             .map(|&x| x.abs())
                             .fold(0.0f32, f32::max);
-                        let mean = speech_buffer.iter().sum::<f32>() / speech_buffer.len() as f32;
-                        let duration_sec = speech_buffer.len() as f32 / sample_rate as f32;
+                        
+                        // Always normalize audio to full scale for model
+                        if max > 0.01 {
+                            // Target 0.95 amplitude (nearly full scale)
+                            let target_amplitude = 0.95;
+                            let scale = target_amplitude / max;
+                            println!("  ⚡ Normalizing audio (max: {:.4} -> {:.2})", max, target_amplitude);
+                            audio_to_process.iter_mut().for_each(|s| *s *= scale);
+                        } else {
+                            println!("  ⚠️  Audio too quiet to process (max: {:.4})", max);
+                        }
+                        
+                        let duration_sec = audio_to_process.len() as f32 / sample_rate as f32;
 
                         println!(
-                            "  📦 Processing: {:.1}s, {} samples, max: {:.4}, mean: {:.4}",
+                            "  📦 Processing: {:.1}s, {} samples, max: {:.4}",
                             duration_sec,
-                            speech_buffer.len(),
-                            max,
-                            mean
+                            audio_to_process.len(),
+                            max
                         );
 
-                        // Send raw audio directly - model handles all preprocessing
-                        // No padding, no minimum length requirements
-                        let audio_to_process = speech_buffer.clone();
-                        
                         println!(
-                            "  📊 Sending: {} samples ({:.2}s) of raw audio",
+                            "  📊 Sending: {} samples ({:.2}s) of processed audio",
                             audio_to_process.len(),
                             audio_to_process.len() as f32 / sample_rate as f32
                         );
 
-                        // Check for potential issues
+                        // Warn about quiet audio
                         if max < 0.01 {
                             println!("  ⚠️  WARNING: Very quiet audio (max < 0.01)");
-                        }
-                        if max > 0.95 {
-                            println!("  ⚠️  WARNING: Possible clipping (max > 0.95)");
-                        }
-                        if mean.abs() > 0.1 {
-                            println!("  ⚠️  WARNING: High DC offset (mean = {:.4})", mean);
                         }
 
                         // Process the complete utterance
@@ -336,24 +348,29 @@ impl Voicy {
                                     result.tokens.len()
                                 );
 
-                                if !result.text.is_empty() && result.text != last_transcription {
-                                    // Only type if we have new text
-                                    if *enable_typing.lock().unwrap() {
-                                        // Type only the new part
-                                        if result.text.starts_with(&last_transcription) {
-                                            let new_part = &result.text[last_transcription.len()..];
-                                            if !new_part.is_empty() {
-                                                println!("  ✅ Typing: {}", new_part);
-                                                enigo.text(new_part).unwrap();
+                                if !result.text.is_empty() {
+                                    // Clean the transcription text
+                                    let cleaned_text = result.text.trim();
+                                    
+                                    if !cleaned_text.is_empty() {
+                                        println!("  📝 Transcription: {}", cleaned_text);
+                                        
+                                        // Type the text if typing is enabled
+                                        if *enable_typing.lock().unwrap() {
+                                            // Add a space between utterances for natural flow
+                                            if !last_transcription.is_empty() {
+                                                enigo.text(" ").unwrap();
                                             }
-                                        } else if last_transcription.is_empty() {
-                                            println!("  ✅ Typing: {}", result.text);
-                                            enigo.text(&result.text).unwrap();
+                                            
+                                            println!("  ✅ Typing: {}", cleaned_text);
+                                            if let Err(e) = enigo.text(cleaned_text) {
+                                                eprintln!("  ❌ Failed to type text: {}", e);
+                                            }
                                         }
+                                        
+                                        last_transcription = cleaned_text.to_string();
+                                        *transcription_text.lock().unwrap() = cleaned_text.to_string();
                                     }
-
-                                    last_transcription = result.text.clone();
-                                    *transcription_text.lock().unwrap() = result.text;
                                 }
                             }
                             Err(e) => {
@@ -362,6 +379,13 @@ impl Voicy {
                         }
 
                         // Reset for next utterance
+                        in_speech = false;
+                        speech_buffer.clear();
+                        silence_count = 0;
+                        
+                    } else if silence_count >= 3 {
+                        // Too short, discard
+                        println!("  🚫 Discarding short audio segment ({} samples)", speech_buffer.len());
                         in_speech = false;
                         speech_buffer.clear();
                         silence_count = 0;
