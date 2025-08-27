@@ -35,11 +35,13 @@ impl StreamingProcessor {
     ) {
         let sample_rate = self.config.audio.target_sample_rate;
         let process_interval = Duration::from_millis(self.config.streaming.process_interval_ms as u64);
-        let min_initial_samples = (self.config.streaming.min_initial_audio_ms * sample_rate / 1000) as usize;
         let max_buffer_samples = (self.config.streaming.rolling_buffer_seconds * sample_rate as f32) as usize;
         
-        // Read size: smaller chunks for lower latency
+        // Read size: moderate chunks for stable capture
         let read_chunk_size = (sample_rate as usize * 50) / 1000; // 50ms chunks
+        
+        // Wait for reasonable initial audio before starting
+        let min_initial_samples = (self.config.streaming.min_initial_audio_ms * sample_rate / 1000) as usize;
         
         if self.config.output.console_logging {
             println!("🚀 Starting real-time streaming mode:");
@@ -78,9 +80,12 @@ impl StreamingProcessor {
                 }
                 
                 // Check if we should process
+                // Process frequently to maintain continuous context
+                let new_audio_available = self.audio_buffer.len() - self.last_processed_position;
+                
                 let should_process = self.process_timer.elapsed() >= process_interval 
                     && self.audio_buffer.len() >= min_initial_samples
-                    && self.audio_buffer.len() > self.last_processed_position;  // Only if new audio
+                    && new_audio_available > 0;  // Process ANY new audio to maintain context
                 
                 if should_process {
                     if !audio_started {
@@ -90,33 +95,36 @@ impl StreamingProcessor {
                         }
                     }
                     
-                    // Get ONLY the new audio since last processing
+                    // Get ONLY truly NEW audio since last processing
+                    // MLX maintains context internally - we must not send overlapping audio!
                     let new_audio_chunk: Vec<f32> = self.audio_buffer[self.last_processed_position..].to_vec();
                     
-                    // Calculate RMS for activity indication
+                    // Calculate RMS for activity indication from recent audio
                     let rms = if !new_audio_chunk.is_empty() {
                         (new_audio_chunk.iter().map(|&x| x * x).sum::<f32>() / new_audio_chunk.len() as f32).sqrt()
                     } else {
                         0.0
                     };
                     
-                    // Only process if there's actual audio activity
-                    if rms > 0.001 && !new_audio_chunk.is_empty() {  // Very low threshold for streaming
-                        if self.config.output.console_logging {
-                            println!("  🔊 Processing {} new samples (RMS: {:.4})", new_audio_chunk.len(), rms);
+                    // Process if we have new audio (even silence, for context)
+                    // Lower the threshold to ensure continuous context
+                    if !new_audio_chunk.is_empty() {
+                        if self.config.output.console_logging && rms > 0.001 {
+                            println!("  🔊 Processing {} new samples (RMS: {:.4})", 
+                                new_audio_chunk.len(), rms);
                         }
                         
                         // Update position BEFORE processing
                         self.last_processed_position = self.audio_buffer.len();
                         
-                        // Optionally apply preprocessing to just the new chunk
+                        // Apply consistent preprocessing to ALL audio (not just loud parts)
                         let processed_audio = if self.config.vad.enable_normalization {
                             self.normalize_audio(new_audio_chunk)
                         } else {
                             new_audio_chunk
                         };
                         
-                        // Send ONLY NEW audio to MLX for inference
+                        // Send ONLY NEW audio to MLX (it maintains context internally)
                         match mlx_model.process_audio_chunk(processed_audio) {
                             Ok(result) => {
                                 // SIMPLE APPROACH: Just type truly NEW text
