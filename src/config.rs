@@ -12,6 +12,7 @@ pub struct Config {
     pub model: ModelConfig,
     pub ui: UiConfig,
     pub output: OutputConfig,
+    pub hotkeys: HotkeyConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +64,7 @@ pub struct UiConfig {
     pub window_height: f32,
     pub gap_from_bottom: f32,
     pub show_audio_levels: bool,
+    pub auto_hide_on_stop: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +72,14 @@ pub struct OutputConfig {
     pub enable_typing: bool,
     pub add_space_between_utterances: bool,
     pub console_logging: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HotkeyConfig {
+    pub toggle_window: Option<String>, // Optional separate toggle
+    pub push_to_talk: String,          // Main push-to-talk hotkey
+    pub start_recording: Option<String>,
+    pub stop_recording: Option<String>,
 }
 
 impl Default for Config {
@@ -82,25 +92,25 @@ impl Default for Config {
                 resampler_quality: ResamplerQuality::High,
             },
             vad: VadConfig {
-                enabled: false, // Disable VAD for streaming mode
-                speech_threshold: 0.003,
-                silence_duration_ms: 500,
-                min_speech_duration_ms: 500,
+                enabled: true, // Enable VAD for better quality
+                speech_threshold: 0.5, // Silero VAD recommended threshold
+                silence_duration_ms: 800, // Wait for natural pauses
+                min_speech_duration_ms: 250, // Filter out very short sounds
                 enable_dc_offset_removal: true,
                 enable_normalization: true,
             },
             streaming: StreamingConfig {
-                enabled: true, // Enable real-time streaming
-                rolling_buffer_seconds: 10.0,
-                process_interval_ms: 500, // Process every 500ms for calmer typing
-                min_initial_audio_ms: 500, // Wait for initial audio chunk
-                lookahead_tokens: 3,
+                enabled: false, // true = type while speaking, false = type after release
+                rolling_buffer_seconds: 20.0, // Larger buffer for context
+                process_interval_ms: 2000, // Process larger chunks (2 seconds)
+                min_initial_audio_ms: 1000, // Wait for 1 second before processing
+                lookahead_tokens: 5, // More lookahead for better accuracy
                 confidence_threshold: 0.85,
             },
             model: ModelConfig {
                 model_name: "mlx-community/parakeet-tdt-0.6b-v2".to_string(),
-                left_context_seconds: 5,
-                right_context_seconds: 3,
+                left_context_seconds: 256, // Use frames as recommended (256 frames)
+                right_context_seconds: 256, // Symmetrical context for best results
                 keep_loaded: true,
             },
             ui: UiConfig {
@@ -108,11 +118,18 @@ impl Default for Config {
                 window_height: 39.0,
                 gap_from_bottom: 70.0,
                 show_audio_levels: false,
+                auto_hide_on_stop: true, // Always hide after push-to-talk release
             },
             output: OutputConfig {
                 enable_typing: true,
                 add_space_between_utterances: true,
                 console_logging: true,
+            },
+            hotkeys: HotkeyConfig {
+                toggle_window: None, // Disabled by default, use push-to-talk instead
+                push_to_talk: "Space".to_string(), // Hold to record
+                start_recording: None,
+                stop_recording: None,
             },
         }
     }

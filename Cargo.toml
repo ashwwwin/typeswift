@@ -7,11 +7,15 @@ edition = "2024"
 gpui = { git = "https://github.com/zed-industries/zed" }
 enigo = "0.2"                                            # For keyboard/mouse control
 cocoa = "0.25"                                           # For macOS-specific APIs
+objc = "0.2"                                             # For Objective-C runtime
+dispatch = "0.2"                                         # For Grand Central Dispatch
 global-hotkey = "0.4"
 whisper-rs = "0.11"                                      # Rust bindings for whisper.cpp
 anyhow = "1.0.99"
 cpal = "0.16.0"
 dirs = "6.0.0"
+lazy_static = "1.5"
+parking_lot = "0.12"
 pyo3 = { version = "0.25.1", features = ["auto-initialize"] }
 ringbuf = "0.4"
 rubato = "0.16"

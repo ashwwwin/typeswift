@@ -1,249 +1,341 @@
-mod audio_stream;
+mod app;
+mod audio;
+mod audio_improved;
 mod config;
-mod mlx;
-mod streaming_processor;
+mod error;
+mod event_loop;
+mod input;
+mod output;
+mod state;
+mod streaming_manager;
+mod window;
 
-use audio_stream::AudioStream;
+use audio_improved::ImprovedAudioProcessor as AudioProcessor;
 use config::Config;
-use streaming_processor::{StreamingProcessor, vad_processing_loop};
-use enigo::{Enigo, Keyboard, Settings};
+use error::VoicyResult;
+use event_loop::{EventCallback, EventLoop};
 use gpui::{
     App, Application, Bounds, Context, Window, WindowBounds, WindowOptions, div, point, prelude::*,
     px, rgb, size,
 };
-use mlx::MLXParakeet;
+use input::{HotkeyEvent, HotkeyHandler};
+use output::{TypingQueue, run_typing_diagnostic};
+use state::{AppStateManager, RecordingState};
+use streaming_manager::StreamingManager;
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::time::Duration;
+use window::WindowManager;
 
 struct Voicy {
+    state: AppStateManager,
+    window_manager: WindowManager,
+    typing_queue: TypingQueue,
+    streaming_manager: StreamingManager,
+    audio_processor: Arc<Mutex<AudioProcessor>>,
     config: Config,
-    audio_stream: Option<AudioStream>,
-    mlx_model: Option<MLXParakeet>,
-    state: RecordingState,
-    transcription_text: Arc<Mutex<String>>,
-    processing_thread: Option<thread::JoinHandle<()>>,
-    should_stop: Arc<Mutex<bool>>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum RecordingState {
-    Idle,
-    Recording,
-    Error,
+    event_queue: Option<Arc<Mutex<Vec<HotkeyEvent>>>>,
 }
 
 impl Voicy {
-    fn new() -> Self {
+    fn new(_cx: &mut Context<Self>) -> Self {
         let config = Config::load().unwrap_or_default();
+        let state = AppStateManager::new();
+
+        // Initialize audio processor
+        let mut audio_processor = AudioProcessor::new(config.clone());
+
+        println!("🚀 Initializing audio system...");
+        match audio_processor.initialize() {
+            Ok(()) => println!("✅ Audio system initialized successfully"),
+            Err(e) => {
+                eprintln!("❌ Failed to initialize audio system: {}", e);
+                eprintln!("   Voicy will still start but recording won't work until model loads");
+            }
+        }
+
+        let typing_queue = TypingQueue::new(true);
+        let streaming_manager = StreamingManager::new(typing_queue.clone());
         
-        // Don't load model on startup - wait until needed
         Self {
+            state,
+            window_manager: WindowManager::new(),
+            typing_queue,
+            streaming_manager,
+            audio_processor: Arc::new(Mutex::new(audio_processor)),
             config,
-            audio_stream: None,
-            mlx_model: None, // Start with no model loaded
-            state: RecordingState::Idle,
-            transcription_text: Arc::new(Mutex::new(String::new())),
-            processing_thread: None,
-            should_stop: Arc::new(Mutex::new(false)),
+            event_queue: None,
         }
     }
 
-    fn toggle_recording(&mut self, cx: &mut Context<Self>) {
-        match self.state {
-            RecordingState::Idle => {
-                self.start_streaming(cx);
-            }
-            RecordingState::Recording => {
-                self.stop_streaming(cx);
-            }
-            _ => {}
-        }
+    fn set_event_queue(&mut self, queue: Arc<Mutex<Vec<HotkeyEvent>>>) {
+        self.event_queue = Some(queue);
     }
 
-    fn start_streaming(&mut self, cx: &mut Context<Self>) {
-        // Load model on demand if not already loaded
-        if self.mlx_model.is_none() {
-            println!("🚀 Loading MLX model on demand...");
-            match MLXParakeet::new() {
-                Ok(model) => {
-                    println!("✅ Model loaded successfully");
-                    self.mlx_model = Some(model);
+    fn poll_events(&mut self) {
+        // First, collect events from the queue
+        let events_to_process = if let Some(ref queue) = self.event_queue {
+            if let Ok(mut events) = queue.lock() {
+                let count = events.len();
+                if count > 0 {
+                    println!("📥 Polling events, found {} events to process", count);
                 }
-                Err(e) => {
-                    eprintln!("❌ Failed to load model: {}", e);
-                    self.state = RecordingState::Error;
-                    cx.notify();
-                    return;
-                }
-            }
-        }
-
-        if let Some(ref mlx_model) = self.mlx_model {
-            // Get the required sample rate from the model
-            let sample_rate = mlx_model.get_sample_rate();
-
-            // Initialize audio stream
-            match AudioStream::new(sample_rate) {
-                Ok(stream) => {
-                    // Start the audio stream
-                    if let Err(e) = stream.start() {
-                        eprintln!("Failed to start audio stream: {}", e);
-                        self.state = RecordingState::Error;
-                        cx.notify();
-                        return;
-                    }
-
-                    // Start MLX streaming with context windows from config
-                    let left_context = self.config.model.left_context_seconds;
-                    let right_context = self.config.model.right_context_seconds;
-
-                    if let Err(e) = mlx_model.start_streaming(left_context, right_context) {
-                        eprintln!("Failed to start MLX streaming: {}", e);
-                        stream.stop();
-                        self.state = RecordingState::Error;
-                        cx.notify();
-                        return;
-                    }
-
-                    // Clear previous transcription  
-                    *self.transcription_text.lock().unwrap() = String::new();
-
-                    // Set up the processing thread
-                    *self.should_stop.lock().unwrap() = false;
-                    let should_stop = self.should_stop.clone();
-                    let transcription_text = self.transcription_text.clone();
-                    let config_clone = self.config.clone();
-                    let stream_clone = stream.clone();
-                    let mlx_model_clone = mlx_model.clone();
-
-                    // Start processing thread - choose mode based on config
-                    let handle = thread::spawn(move || {
-                        if config_clone.streaming.enabled {
-                            // Use real-time streaming processor
-                            let processor = StreamingProcessor::new(config_clone.clone());
-                            processor.process_loop(
-                                stream_clone,
-                                mlx_model_clone,
-                                transcription_text,
-                                should_stop,
-                            );
-                        } else {
-                            // Use VAD-based processor
-                            vad_processing_loop(
-                                stream_clone,
-                                mlx_model_clone,
-                                transcription_text,
-                                should_stop,
-                                config_clone,
-                                sample_rate,
-                            );
-                        }
-                    });
-
-                    self.audio_stream = Some(stream);
-                    self.processing_thread = Some(handle);
-                    self.state = RecordingState::Recording;
-
-                    println!("🎙️ Started real-time transcription");
-                }
-                Err(e) => {
-                    eprintln!("Failed to create audio stream: {}", e);
-                    self.state = RecordingState::Error;
-                }
+                events.drain(..).collect::<Vec<HotkeyEvent>>()
+            } else {
+                Vec::new()
             }
         } else {
-            println!("⚠️  No MLX model available");
-            self.state = RecordingState::Error;
+            println!("⚠️ No event queue set!");
+            Vec::new()
+        };
+
+        // Then process them after releasing all locks
+        for event in events_to_process {
+            println!("🎬 Processing event: {:?}", event);
+            if let Err(e) = self.handle_hotkey_event(event) {
+                eprintln!("❌ Failed to handle event: {}", e);
+            } else {
+                println!("✅ Event handled successfully");
+            }
         }
-        cx.notify();
     }
 
-    fn stop_streaming(&mut self, cx: &mut Context<Self>) {
-        // Signal the processing thread to stop
-        *self.should_stop.lock().unwrap() = true;
+    fn handle_hotkey_event(&mut self, event: HotkeyEvent) -> VoicyResult<()> {
+        match event {
+            HotkeyEvent::PushToTalkPressed => {
+                if self.state.can_start_recording() {
+                    println!("🎙️ Push-to-talk PRESSED - Starting recording");
+                    self.state.set_recording_state(RecordingState::Recording);
+                    self.state.clear_transcription();
+                    self.streaming_manager.reset();  // Reset streaming manager
+                    self.window_manager.show_without_focus()?;
 
-        // Stop the audio stream
-        if let Some(ref stream) = self.audio_stream {
-            stream.stop();
-        }
+                    // Start recording in audio processor
+                    if let Ok(mut audio) = self.audio_processor.lock() {
+                        if let Err(e) = audio.start_recording() {
+                            eprintln!("❌ Failed to start recording: {}", e);
+                            self.state.set_recording_state(RecordingState::Idle);
+                            return Err(e);
+                        }
+                    }
+                } else {
+                    println!(
+                        "⚠️ Cannot start recording, state: {:?}",
+                        self.state.get_recording_state()
+                    );
+                }
+            }
 
-        // Stop MLX streaming and get any remaining text
-        if let Some(ref mlx_model) = self.mlx_model {
-            match mlx_model.stop_streaming() {
-                Ok(remaining_text) => {
-                    if !remaining_text.is_empty() {
-                        println!("\n📝 Remaining text:\n{}", remaining_text);
-                        
-                        // Type any remaining text that wasn't processed yet
-                        if self.config.output.enable_typing {
-                            if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
-                                // Add space if there was previous text
-                                let current_text = self.transcription_text.lock().unwrap();
-                                if self.config.output.add_space_between_utterances && !current_text.is_empty() {
-                                    let _ = enigo.text(" ");
-                                }
-                                drop(current_text);
-                                
-                                // Type the remaining text
-                                let _ = enigo.text(&remaining_text);
+            HotkeyEvent::PushToTalkReleased => {
+                if self.state.can_stop_recording() {
+                    println!("🛑 Push-to-talk RELEASED - Stopping recording");
+                    self.state.set_recording_state(RecordingState::Processing);
+                    self.window_manager.hide()?;
+
+                    // Stop recording and get final text
+                    let final_text = if let Ok(mut audio) = self.audio_processor.lock() {
+                        match audio.stop_recording() {
+                            Ok(text) => text,
+                            Err(e) => {
+                                eprintln!("❌ Failed to stop recording: {}", e);
+                                self.state.set_recording_state(RecordingState::Idle);
+                                return Err(e);
                             }
                         }
-                        
-                        // Append to transcription text
-                        let mut transcription = self.transcription_text.lock().unwrap();
-                        if !transcription.is_empty() {
-                            transcription.push(' ');
-                        }
-                        transcription.push_str(&remaining_text);
+                    } else {
+                        String::new()
+                    };
+
+                    // Type the text if enabled
+                    if !final_text.is_empty() && self.config.output.enable_typing {
+                        let add_space = self.config.output.add_space_between_utterances;
+                        println!("💬 Typing: '{}'", final_text);
+                        self.typing_queue.queue_typing(final_text, add_space)?;
                     }
+
+                    self.state.set_recording_state(RecordingState::Idle);
+                } else {
+                    println!(
+                        "⚠️ Cannot stop recording, state: {:?}",
+                        self.state.get_recording_state()
+                    );
                 }
-                Err(e) => {
-                    eprintln!("Error stopping MLX streaming: {}", e);
+            }
+
+            HotkeyEvent::ToggleWindow => {
+                if self.state.is_window_visible() {
+                    self.window_manager.hide()?;
+                    self.state.set_window_visible(false);
+                } else {
+                    self.window_manager.show_without_focus()?;
+                    self.state.set_window_visible(true);
+                }
+            }
+
+            HotkeyEvent::StartRecording => {
+                if self.state.can_start_recording() {
+                    self.handle_hotkey_event(HotkeyEvent::PushToTalkPressed)?;
+                }
+            }
+
+            HotkeyEvent::StopRecording => {
+                if self.state.can_stop_recording() {
+                    self.handle_hotkey_event(HotkeyEvent::PushToTalkReleased)?;
                 }
             }
         }
 
-        // Wait for processing thread to finish
-        if let Some(handle) = self.processing_thread.take() {
-            let _ = handle.join();
-        }
-
-        self.audio_stream = None;
-        self.state = RecordingState::Idle;
-        println!("🛑 Stopped real-time transcription");
-
-        // Optionally unload model based on config
-        if !self.config.model.keep_loaded {
-            self.unload_model();
-        }
-
-        cx.notify();
+        Ok(())
     }
 
-    #[allow(dead_code)]
-    fn unload_model(&mut self) {
-        // Keep model loaded for better performance
-        // Only unload if explicitly needed for memory management
-        if self.mlx_model.is_some() {
-            println!("🧹 Unloading MLX model to free RAM...");
-            self.mlx_model = None;
-            println!("✅ Model unloaded");
+    fn poll_live_transcription(&mut self) {
+        // Check for live transcriptions while recording
+        if self.state.get_recording_state() == RecordingState::Recording {
+            if let Ok(audio) = self.audio_processor.lock() {
+                if let Some(live_text) = audio.get_live_transcription() {
+                    self.state.append_transcription(&live_text);
+                }
+            }
         }
+    }
+
+    fn process_typing_queue(&mut self) {
+        if let Err(e) = self.typing_queue.process_queue() {
+            eprintln!("⚠️ Typing error: {}", e);
+        }
+    }
+}
+
+impl Voicy {
+    fn start_polling(&self, _cx: &mut Context<Self>) {
+        // Use a background thread to poll events
+        let event_queue = self.event_queue.clone();
+        let audio = self.audio_processor.clone();
+        let typing_queue = self.typing_queue.clone();
+        let streaming_manager = self.streaming_manager.clone();
+        let state = self.state.clone();
+        let window_manager = self.window_manager.clone();
+        let config = self.config.clone();
+
+        std::thread::spawn(move || {
+            loop {
+                // Poll and process events directly in background thread
+                if let Some(ref queue) = event_queue {
+                    if let Ok(mut events) = queue.lock() {
+                        for event in events.drain(..) {
+                            println!("🎬 Background processing event: {:?}", event);
+
+                            match event {
+                                HotkeyEvent::PushToTalkPressed => {
+                                    if state.can_start_recording() {
+                                        println!("🎙️ Starting recording");
+                                        state.set_recording_state(RecordingState::Recording);
+                                        state.clear_transcription();
+                                        streaming_manager.reset();  // Reset for new recording
+                                        window_manager.show_without_focus().ok();
+
+                                        if let Ok(mut audio) = audio.lock() {
+                                            audio.start_recording().ok();
+                                        }
+                                    }
+                                }
+                                HotkeyEvent::PushToTalkReleased => {
+                                    if state.can_stop_recording() {
+                                        println!("🛑 Stopping recording");
+                                        state.set_recording_state(RecordingState::Processing);
+                                        window_manager.hide().ok();
+
+                                        let final_text = if let Ok(mut audio) = audio.lock() {
+                                            audio.stop_recording().unwrap_or_default()
+                                        } else {
+                                            String::new()
+                                        };
+
+                                        if config.streaming.enabled {
+                                            // Streaming mode: only type remaining text not yet typed
+                                            if let Some(corrected_text) = streaming_manager.get_pending_corrections() {
+                                                println!("🔄 Corrections pending: '{}'", corrected_text);
+                                            }
+                                            
+                                            if !final_text.is_empty() && config.output.enable_typing {
+                                                let current_transcription = state.get_transcription();
+                                                if final_text.len() > current_transcription.len() {
+                                                    let remaining_text = &final_text[current_transcription.len()..];
+                                                    if !remaining_text.is_empty() {
+                                                        typing_queue
+                                                            .queue_typing(
+                                                                remaining_text.to_string(),
+                                                                config.output.add_space_between_utterances,
+                                                            )
+                                                            .ok();
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            // Normal mode: type all text at once after release
+                                            if !final_text.is_empty() && config.output.enable_typing {
+                                                println!("💬 Typing final text: '{}'", final_text);
+                                                typing_queue
+                                                    .queue_typing(
+                                                        final_text,
+                                                        config.output.add_space_between_utterances,
+                                                    )
+                                                    .ok();
+                                            }
+                                        }
+
+                                        state.set_recording_state(RecordingState::Idle);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+
+                // Poll for live transcriptions only if streaming is enabled
+                if config.streaming.enabled && state.get_recording_state() == RecordingState::Recording {
+                    if let Ok(audio) = audio.lock() {
+                        if let Some(live_text) = audio.get_live_transcription() {
+                            // Update UI with live transcription
+                            state.set_transcription(live_text.clone());
+                            
+                            // Type incrementally in streaming mode
+                            if config.output.enable_typing {
+                                streaming_manager.process_live_text(&live_text);
+                            }
+                        }
+                    }
+                }
+
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        });
     }
 }
 
 impl Render for Voicy {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let status_text = match self.state {
-            RecordingState::Idle => "Click to start streaming",
-            RecordingState::Recording => "🔴 Streaming... (click to stop)",
-            RecordingState::Error => "❌ Error occurred",
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        // Just render, no polling here
+
+        let recording_state = self.state.get_recording_state();
+        let transcription = self.state.get_transcription();
+
+        let status_text = match recording_state {
+            RecordingState::Idle => "Ready".to_string(),
+            RecordingState::Recording => {
+                if transcription.is_empty() {
+                    "Listening...".to_string()
+                } else {
+                    transcription.clone()
+                }
+            }
+            RecordingState::Processing => "Processing...".to_string(),
         };
 
-        let bg_color = match self.state {
-            RecordingState::Recording => rgb(0xdc2626), // Red when streaming
-            RecordingState::Error => rgb(0x991b1b),     // Dark red for errors
-            _ => rgb(0x1f2937),                         // Dark gray when idle
+        let bg_color = match recording_state {
+            RecordingState::Idle => rgb(0x1f2937),
+            RecordingState::Recording => rgb(0xdc2626),
+            RecordingState::Processing => rgb(0x3b82f6),
         };
 
         div()
@@ -257,28 +349,49 @@ impl Render for Voicy {
             .items_center()
             .rounded_md()
             .border_1()
-            .border_color(match self.state {
+            .border_color(match recording_state {
+                RecordingState::Idle => rgb(0x374151),
                 RecordingState::Recording => rgb(0xef4444),
-                RecordingState::Error => rgb(0xb91c1c),
-                _ => rgb(0x374151),
+                RecordingState::Processing => rgb(0x60a5fa),
             })
             .text_xs()
             .text_color(rgb(0xffffff))
             .child(status_text)
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(|this, _event, _window, cx| {
-                    this.toggle_recording(cx);
-                }),
-            )
     }
 }
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
-        let config = Config::load().unwrap_or_default();
-        let window_size = size(px(config.ui.window_width), px(config.ui.window_height));
-        let gap_from_bottom = px(config.ui.gap_from_bottom);
+    // Check for diagnostic flag
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "--typing-diagnostic" {
+        run_typing_diagnostic();
+        return;
+    }
+
+    // Load configuration
+    let config = Config::load().unwrap_or_default();
+
+    // Initialize hotkey handler
+    let mut hotkey_handler = HotkeyHandler::new().expect("Failed to create hotkey handler");
+
+    // Register hotkeys
+    if let Err(e) = hotkey_handler.register_hotkeys(&config.hotkeys) {
+        eprintln!("⚠️ Failed to register hotkeys: {}", e);
+        return;
+    }
+
+    // Start the hotkey event loop
+    let hotkey_receiver = hotkey_handler.start_event_loop();
+
+    // Clone config for the closure
+    let config_clone = config.clone();
+
+    Application::new().run(move |cx: &mut App| {
+        let window_size = size(
+            px(config_clone.ui.window_width),
+            px(config_clone.ui.window_height),
+        );
+        let gap_from_bottom = px(config_clone.ui.gap_from_bottom);
 
         // Get the primary display
         let displays = cx.displays();
@@ -293,16 +406,79 @@ fn main() {
             size: window_size,
         };
 
-        cx.open_window(
-            WindowOptions {
-                is_movable: false,
-                titlebar: None,
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                display_id: Some(screen.id()),
-                ..Default::default()
-            },
-            |_, cx| cx.new(|_| Voicy::new()),
-        )
-        .unwrap();
+        // Store events in a shared queue that Voicy can poll
+        let event_queue = Arc::new(Mutex::new(Vec::new()));
+        let event_queue_clone = event_queue.clone();
+        let event_queue_for_voicy = event_queue.clone();
+
+        let window = cx
+            .open_window(
+                WindowOptions {
+                    is_movable: false,
+                    titlebar: None,
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    display_id: Some(screen.id()),
+                    focus: false,
+                    show: false, // Must be visible for render to be called
+                    kind: gpui::WindowKind::PopUp,
+                    ..Default::default()
+                },
+                move |_window, cx| {
+                    cx.new(|cx| {
+                        let mut voicy = Voicy::new(cx);
+                        voicy.set_event_queue(event_queue_for_voicy);
+                        voicy.start_polling(cx);
+                        voicy
+                    })
+                },
+            )
+            .unwrap();
+
+        let window_for_callback = window.clone();
+
+        // Create the event callback that will handle hotkey events
+        let event_callback: EventCallback = Arc::new(Mutex::new(move |event| {
+            println!("🎯 Event callback triggered for: {:?}", event);
+            // Queue the event for processing
+            if let Ok(mut queue) = event_queue_clone.lock() {
+                queue.push(event);
+                println!("📦 Event queued successfully, queue size: {}", queue.len());
+
+                // Note: Window updates need to happen on the main thread
+                // The event will be processed on next render cycle
+                println!("🔔 Event queued, will be processed on next render");
+
+                Ok(())
+            } else {
+                Err(error::VoicyError::WindowOperationFailed(
+                    "Failed to queue event".to_string(),
+                ))
+            }
+        }));
+
+        // Start the dedicated event loop
+        let event_loop = EventLoop::new(hotkey_receiver, event_callback);
+        let _event_loop_handle = event_loop.start();
+
+        // Set up window properties
+        if let Err(e) = WindowManager::setup_properties() {
+            eprintln!("⚠️ Failed to setup window properties: {}", e);
+        }
+
+        // Initialize typing queue on main thread
+        let typing_queue = TypingQueue::new(false);
+        if let Err(e) = typing_queue.initialize_on_main_thread() {
+            eprintln!("⚠️ Failed to initialize typing: {}", e);
+        }
+
+        println!("🚀 Voicy started with global shortcuts:");
+        println!(
+            "   Push-to-talk: {} (hold to record)",
+            config_clone.hotkeys.push_to_talk
+        );
+        if let Some(ref key) = config_clone.hotkeys.toggle_window {
+            println!("   Toggle window: {}", key);
+        }
+        println!("✅ Event loop running independently of UI");
     });
 }
