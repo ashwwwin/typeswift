@@ -92,7 +92,7 @@ impl Default for Config {
             streaming: StreamingConfig {
                 enabled: true, // Enable real-time streaming
                 rolling_buffer_seconds: 10.0,
-                process_interval_ms: 300, // Process every 500ms for calmer typing
+                process_interval_ms: 500, // Process every 500ms for calmer typing
                 min_initial_audio_ms: 500, // Wait for initial audio chunk
                 lookahead_tokens: 3,
                 confidence_threshold: 0.85,
