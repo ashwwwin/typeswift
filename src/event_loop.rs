@@ -1,4 +1,4 @@
-use crate::error::{VoicyError, VoicyResult};
+use crate::error::VoicyResult;
 use crate::input::HotkeyEvent;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};

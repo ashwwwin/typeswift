@@ -1,6 +1,4 @@
-mod app;
 mod audio;
-mod audio_improved;
 mod config;
 mod error;
 mod event_loop;
@@ -10,7 +8,7 @@ mod state;
 mod streaming_manager;
 mod window;
 
-use audio_improved::ImprovedAudioProcessor as AudioProcessor;
+use audio::ImprovedAudioProcessor as AudioProcessor;
 use config::Config;
 use error::VoicyResult;
 use event_loop::{EventCallback, EventLoop};
@@ -434,7 +432,7 @@ fn main() {
             )
             .unwrap();
 
-        let window_for_callback = window.clone();
+        let _window_for_callback = window.clone();
 
         // Create the event callback that will handle hotkey events
         let event_callback: EventCallback = Arc::new(Mutex::new(move |event| {
