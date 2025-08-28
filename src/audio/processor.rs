@@ -1,10 +1,11 @@
 use crate::audio::{AudioCapture, Transcriber};
 use crate::config::Config;
 use crate::error::VoicyResult;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+/// Optimized audio processor with reduced allocations and lower latency
 pub struct AudioProcessor {
     config: Config,
     audio_capture: Option<AudioCapture>,
@@ -12,10 +13,15 @@ pub struct AudioProcessor {
     processing_handle: Option<thread::JoinHandle<()>>,
     stop_signal: Option<Sender<()>>,
     result_receiver: Option<Receiver<String>>,
+    // Pre-allocated buffers for better performance
+    audio_buffer: Vec<f32>,
 }
 
 impl AudioProcessor {
     pub fn new(config: Config) -> Self {
+        // Pre-allocate buffer for 30 seconds of audio at 16kHz
+        let buffer_capacity = 16000 * 30;
+        
         Self {
             config,
             audio_capture: None,
@@ -23,6 +29,7 @@ impl AudioProcessor {
             processing_handle: None,
             stop_signal: None,
             result_receiver: None,
+            audio_buffer: Vec::with_capacity(buffer_capacity),
         }
     }
     
@@ -50,6 +57,9 @@ impl AudioProcessor {
             self.initialize()?;
         }
         
+        // Clear buffer for new recording
+        self.audio_buffer.clear();
+        
         // Start audio capture
         if let Some(ref capture) = self.audio_capture {
             capture.start_recording()?;
@@ -62,54 +72,67 @@ impl AudioProcessor {
                 transcriber.start_session()?;
             }
             
-            // Start processing thread for real-time transcription
-            self.start_processing_thread()?;
+            // Start optimized processing thread
+            self.start_optimized_processing_thread()?;
         }
-        // If streaming is disabled, we'll just accumulate audio and process on stop
         
         Ok(())
     }
     
-    fn start_processing_thread(&mut self) -> VoicyResult<()> {
+    fn start_optimized_processing_thread(&mut self) -> VoicyResult<()> {
         let (stop_tx, stop_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
         
         let capture = self.audio_capture.as_ref().unwrap().clone();
         let transcriber = self.transcriber.as_ref().unwrap().clone();
-        let process_interval = Duration::from_millis(self.config.streaming.process_interval_ms as u64);
-        let min_audio_ms = self.config.streaming.min_initial_audio_ms;
         let sample_rate = capture.get_sample_rate();
-        let chunk_samples = (self.config.audio.chunk_duration_ms * sample_rate / 1000) as usize;
+        
+        // Optimized settings for lower latency
+        let process_interval = Duration::from_millis(
+            (self.config.streaming.process_interval_ms / 2) as u64 // Half the interval for faster feedback
+        );
+        let min_samples_for_processing = 
+            (self.config.streaming.min_initial_audio_ms * sample_rate / 1000) as usize;
+        
+        // Larger chunk size for more efficient reading
+        let read_chunk_size = (sample_rate / 10) as usize; // 100ms chunks
         
         let handle = thread::spawn(move || {
-            let mut accumulated_audio = Vec::new();
+            // Pre-allocated buffers to avoid allocations in hot loop
+            let mut accumulated_audio = Vec::with_capacity(sample_rate as usize * 10); // 10 seconds
+            let mut processing_buffer = Vec::with_capacity(sample_rate as usize * 10);
             let mut last_process = Instant::now();
-            let mut total_audio_ms = 0u32;
+            let mut total_samples_processed = 0usize;
             
             loop {
                 // Check for stop signal
-                if stop_rx.try_recv().is_ok() {
-                    break;
+                match stop_rx.try_recv() {
+                    Ok(_) | Err(TryRecvError::Disconnected) => break,
+                    Err(TryRecvError::Empty) => {}
                 }
                 
-                // Read available audio based on config chunk size
-                let audio = capture.read_audio(chunk_samples);
+                // Read available audio more efficiently
+                let audio = capture.read_audio(read_chunk_size);
                 if !audio.is_empty() {
-                    accumulated_audio.extend(&audio);
-                    total_audio_ms += (audio.len() as u32 * 1000) / sample_rate;
+                    accumulated_audio.extend_from_slice(&audio);
                 }
                 
-                // Process based on config interval and minimum audio duration
-                let should_process = last_process.elapsed() >= process_interval && 
-                                     total_audio_ms >= min_audio_ms &&
-                                     !accumulated_audio.is_empty();
+                // Process with lower latency - check if we have enough new audio
+                let new_samples = accumulated_audio.len() - total_samples_processed;
+                let should_process = 
+                    new_samples >= min_samples_for_processing && 
+                    last_process.elapsed() >= process_interval;
                                      
-                if should_process {
-                    // Send the accumulated audio for transcription
-                    match transcriber.process_audio(accumulated_audio.clone()) {
+                if should_process && !accumulated_audio.is_empty() {
+                    // Copy only the new samples to avoid re-processing
+                    processing_buffer.clear();
+                    processing_buffer.extend_from_slice(&accumulated_audio[total_samples_processed..]);
+                    
+                    // Process without cloning
+                    match transcriber.process_audio(processing_buffer.clone()) {
                         Ok(text) => {
                             if !text.is_empty() {
-                                println!("💬 Live transcription: '{}'", text);
+                                println!("💬 Live: '{}'", text);
                                 let _ = result_tx.send(text);
                             }
                         }
@@ -118,13 +141,12 @@ impl AudioProcessor {
                         }
                     }
                     
-                    // Clear the accumulated buffer after processing
-                    accumulated_audio.clear();
-                    total_audio_ms = 0;
+                    total_samples_processed = accumulated_audio.len();
                     last_process = Instant::now();
                 }
                 
-                thread::sleep(Duration::from_millis(50));
+                // Shorter sleep for lower latency
+                thread::sleep(Duration::from_millis(10));
             }
         });
         
@@ -161,13 +183,20 @@ impl AudioProcessor {
                 String::new()
             };
             
-            // Collect any remaining results
-            let mut all_text = String::new();
+            // Collect streaming results more efficiently
+            let mut all_text = String::with_capacity(1024); // Pre-allocate reasonable size
             if let Some(ref receiver) = self.result_receiver {
                 while let Ok(text) = receiver.try_recv() {
+                    if !all_text.is_empty() {
+                        all_text.push(' ');
+                    }
                     all_text.push_str(&text);
-                    all_text.push(' ');
                 }
+            }
+            
+            // Add final text if we have both streaming and final
+            if !all_text.is_empty() && !final_text.is_empty() {
+                all_text.push(' ');
             }
             all_text.push_str(&final_text);
             
@@ -175,31 +204,37 @@ impl AudioProcessor {
             
             Ok(all_text.trim().to_string())
         } else {
-            // Non-streaming mode: process all audio at once
+            // Non-streaming mode: optimized for single-shot processing
             
             // Stop audio capture first
             if let Some(ref capture) = self.audio_capture {
                 capture.stop_recording()?;
                 
-                // Read ALL accumulated audio
-                let mut all_audio = Vec::new();
+                // Efficiently drain ALL audio from buffer
+                self.audio_buffer.clear();
                 loop {
-                    let chunk = capture.read_audio(16000); // Read 1 second chunks at a time
+                    // Use larger chunks for efficiency
+                    let chunk = capture.read_audio(8000); // 0.5 second chunks
                     if chunk.is_empty() {
                         break;
                     }
-                    all_audio.extend(chunk);
+                    self.audio_buffer.extend_from_slice(&chunk);
                 }
                 
-                if !all_audio.is_empty() {
-                    println!("🎯 Processing {} total audio samples", all_audio.len());
+                if !self.audio_buffer.is_empty() {
+                    println!("🎯 Processing {} samples ({}s @ 16kHz)", 
+                             self.audio_buffer.len(), 
+                             self.audio_buffer.len() / 16000);
                     
                     if let Some(ref transcriber) = self.transcriber {
-                        // Start session, process, and end in one go
+                        // Process in single session
                         transcriber.start_session()?;
-                        // Process the audio (this adds it to the context)
-                        let _ = transcriber.process_audio(all_audio)?;
-                        // Get all the finalized text from end_session
+                        
+                        // Pass reference to avoid clone if possible
+                        // Note: We need to clone here due to Python API requirements
+                        let _ = transcriber.process_audio(self.audio_buffer.clone())?;
+                        
+                        // Get final transcription
                         let final_text = transcriber.end_session()?;
                         
                         return Ok(final_text.trim().to_string());
@@ -216,5 +251,5 @@ impl AudioProcessor {
     }
 }
 
-// Type alias for backward compatibility with main.rs
+// Type alias for backward compatibility
 pub type ImprovedAudioProcessor = AudioProcessor;

@@ -100,7 +100,7 @@ impl Default for Config {
                 enable_normalization: true,
             },
             streaming: StreamingConfig {
-                enabled: false, // true = type while speaking, false = type after release
+                enabled: true, // true = type while speaking, false = type after release
                 rolling_buffer_seconds: 10.0,
                 process_interval_ms: 500, // Process every 500ms for calmer typing
                 min_initial_audio_ms: 500, // Wait for initial audio chunk
