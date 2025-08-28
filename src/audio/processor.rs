@@ -197,15 +197,12 @@ impl AudioProcessor {
                     if let Some(ref transcriber) = self.transcriber {
                         // Start session, process, and end in one go
                         transcriber.start_session()?;
-                        let text = transcriber.process_audio(all_audio)?;
+                        // Process the audio (this adds it to the context)
+                        let _ = transcriber.process_audio(all_audio)?;
+                        // Get all the finalized text from end_session
                         let final_text = transcriber.end_session()?;
                         
-                        let mut result = text;
-                        if !result.is_empty() && !final_text.is_empty() {
-                            result.push(' ');
-                        }
-                        result.push_str(&final_text);
-                        return Ok(result.trim().to_string());
+                        return Ok(final_text.trim().to_string());
                     }
                 }
             }
