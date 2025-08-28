@@ -28,22 +28,6 @@ impl std::error::Error for VoicyError {}
 
 pub type VoicyResult<T> = Result<T, VoicyError>;
 
-/// Log error and continue execution without panicking
-pub fn log_error(error: &VoicyError) {
-    eprintln!("❌ Error: {}", error);
-}
-
-/// Handle recoverable errors gracefully
-pub fn handle_recoverable<T>(result: VoicyResult<T>, default: T) -> T {
-    match result {
-        Ok(value) => value,
-        Err(e) => {
-            log_error(&e);
-            default
-        }
-    }
-}
-
 impl From<pyo3::PyErr> for VoicyError {
     fn from(err: pyo3::PyErr) -> Self {
         VoicyError::ModelLoadFailed(format!("Python error: {}", err))

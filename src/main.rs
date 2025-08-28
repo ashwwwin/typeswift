@@ -168,18 +168,6 @@ impl Voicy {
                     self.state.set_window_visible(true);
                 }
             }
-
-            HotkeyEvent::StartRecording => {
-                if self.state.can_start_recording() {
-                    self.handle_hotkey_event(HotkeyEvent::PushToTalkPressed)?;
-                }
-            }
-
-            HotkeyEvent::StopRecording => {
-                if self.state.can_stop_recording() {
-                    self.handle_hotkey_event(HotkeyEvent::PushToTalkReleased)?;
-                }
-            }
         }
 
         Ok(())

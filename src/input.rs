@@ -14,16 +14,12 @@ pub enum HotkeyEvent {
     PushToTalkPressed,
     PushToTalkReleased,
     ToggleWindow,
-    StartRecording,
-    StopRecording,
 }
 
 pub struct HotkeyHandler {
     manager: GlobalHotKeyManager,
     toggle_hotkey: Option<HotKey>,
     push_to_talk_hotkey: Option<HotKey>,
-    start_recording_hotkey: Option<HotKey>,
-    stop_recording_hotkey: Option<HotKey>,
 }
 
 impl HotkeyHandler {
@@ -35,8 +31,6 @@ impl HotkeyHandler {
             manager,
             toggle_hotkey: None,
             push_to_talk_hotkey: None,
-            start_recording_hotkey: None,
-            stop_recording_hotkey: None,
         })
     }
 
@@ -46,12 +40,6 @@ impl HotkeyHandler {
             let _ = self.manager.unregister(hotkey.clone());
         }
         if let Some(ref hotkey) = self.push_to_talk_hotkey {
-            let _ = self.manager.unregister(hotkey.clone());
-        }
-        if let Some(ref hotkey) = self.start_recording_hotkey {
-            let _ = self.manager.unregister(hotkey.clone());
-        }
-        if let Some(ref hotkey) = self.stop_recording_hotkey {
             let _ = self.manager.unregister(hotkey.clone());
         }
 
@@ -69,22 +57,6 @@ impl HotkeyHandler {
             println!("✅ Registered toggle window: {}", toggle_key);
         }
 
-        if let Some(ref start_key) = config.start_recording {
-            let start_hotkey = parse_hotkey(start_key)?;
-            self.manager.register(start_hotkey.clone())
-                .map_err(|e| VoicyError::HotkeyRegistrationFailed(format!("Failed to register start recording: {}", e)))?;
-            self.start_recording_hotkey = Some(start_hotkey);
-            println!("✅ Registered start recording: {}", start_key);
-        }
-
-        if let Some(ref stop_key) = config.stop_recording {
-            let stop_hotkey = parse_hotkey(stop_key)?;
-            self.manager.register(stop_hotkey.clone())
-                .map_err(|e| VoicyError::HotkeyRegistrationFailed(format!("Failed to register stop recording: {}", e)))?;
-            self.stop_recording_hotkey = Some(stop_hotkey);
-            println!("✅ Registered stop recording: {}", stop_key);
-        }
-
         Ok(())
     }
 
@@ -92,8 +64,6 @@ impl HotkeyHandler {
         let (sender, receiver) = channel();
         let toggle_hotkey = self.toggle_hotkey.clone();
         let push_to_talk_hotkey = self.push_to_talk_hotkey.clone();
-        let start_recording_hotkey = self.start_recording_hotkey.clone();
-        let stop_recording_hotkey = self.stop_recording_hotkey.clone();
         let is_push_to_talk_active = Arc::new(Mutex::new(false));
 
         thread::spawn(move || {
@@ -108,7 +78,6 @@ impl HotkeyHandler {
                                 event.id,
                                 &toggle_hotkey,
                                 &push_to_talk_hotkey,
-                                &start_recording_hotkey,
                                 &is_push_to_talk_active,
                             ) {
                                 println!("📤 Sending event: {:?}", hotkey_event);
@@ -121,7 +90,6 @@ impl HotkeyHandler {
                             if let Some(hotkey_event) = handle_hotkey_release(
                                 event.id,
                                 &push_to_talk_hotkey,
-                                &stop_recording_hotkey,
                                 &is_push_to_talk_active,
                             ) {
                                 println!("📤 Sending event: {:?}", hotkey_event);
@@ -145,7 +113,6 @@ fn handle_hotkey_press(
     hotkey_id: u32,
     toggle_hotkey: &Option<HotKey>,
     push_to_talk_hotkey: &Option<HotKey>,
-    start_recording_hotkey: &Option<HotKey>,
     is_push_to_talk_active: &Arc<Mutex<bool>>,
 ) -> Option<HotkeyEvent> {
     if let Some(ptt) = push_to_talk_hotkey {
@@ -165,13 +132,6 @@ fn handle_hotkey_press(
             return Some(HotkeyEvent::ToggleWindow);
         }
     }
-
-    if let Some(start) = start_recording_hotkey {
-        if start.id() == hotkey_id {
-            println!("🎙️ Start recording hotkey pressed");
-            return Some(HotkeyEvent::StartRecording);
-        }
-    }
     
     None
 }
@@ -179,7 +139,6 @@ fn handle_hotkey_press(
 fn handle_hotkey_release(
     hotkey_id: u32,
     push_to_talk_hotkey: &Option<HotKey>,
-    stop_recording_hotkey: &Option<HotKey>,
     is_push_to_talk_active: &Arc<Mutex<bool>>,
 ) -> Option<HotkeyEvent> {
     if let Some(ptt) = push_to_talk_hotkey {
@@ -190,13 +149,6 @@ fn handle_hotkey_release(
                 println!("🛑 Push-to-talk RELEASED");
                 return Some(HotkeyEvent::PushToTalkReleased);
             }
-        }
-    }
-
-    if let Some(stop) = stop_recording_hotkey {
-        if stop.id() == hotkey_id {
-            println!("🛑 Stop recording hotkey released");
-            return Some(HotkeyEvent::StopRecording);
         }
     }
     
