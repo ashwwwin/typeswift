@@ -159,7 +159,7 @@ impl AudioProcessor {
     
     pub fn stop_recording(&mut self) -> VoicyResult<String> {
         if self.config.streaming.enabled {
-            // Streaming mode: stop thread and collect accumulated text
+            // Streaming mode: just clean up, don't return text (it was already typed live)
             
             // Stop processing thread
             if let Some(stop) = self.stop_signal.take() {
@@ -176,33 +176,22 @@ impl AudioProcessor {
                 capture.stop_recording()?;
             }
             
-            // End transcription session and get final text
-            let final_text = if let Some(ref transcriber) = self.transcriber {
-                transcriber.end_session()?
-            } else {
-                String::new()
-            };
+            // End transcription session (cleanup only)
+            if let Some(ref transcriber) = self.transcriber {
+                let _ = transcriber.end_session()?;
+            }
             
-            // Collect streaming results more efficiently
-            let mut all_text = String::with_capacity(1024); // Pre-allocate reasonable size
+            // Drain any remaining results (but don't return them - they were already typed)
             if let Some(ref receiver) = self.result_receiver {
-                while let Ok(text) = receiver.try_recv() {
-                    if !all_text.is_empty() {
-                        all_text.push(' ');
-                    }
-                    all_text.push_str(&text);
+                while receiver.try_recv().is_ok() {
+                    // Just drain the channel
                 }
             }
             
-            // Add final text if we have both streaming and final
-            if !all_text.is_empty() && !final_text.is_empty() {
-                all_text.push(' ');
-            }
-            all_text.push_str(&final_text);
-            
             self.result_receiver = None;
             
-            Ok(all_text.trim().to_string())
+            // Return empty string since everything was already typed live
+            Ok(String::new())
         } else {
             // Non-streaming mode: optimized for single-shot processing
             

@@ -1,173 +1,248 @@
 use crate::error::{VoicyError, VoicyResult};
 use enigo::{Enigo, Keyboard, Settings};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
-#[derive(Debug, Clone)]
-pub struct TypingRequest {
-    pub text: String,
-    pub add_space: bool,
+/// Optimized typing system with single worker thread
+pub struct TypingQueue {
+    sender: Option<Sender<TypingCommand>>,
+    worker_handle: Option<thread::JoinHandle<()>>,
+    use_direct_execution: bool,
 }
 
-pub struct TypingQueue {
-    sender: Sender<TypingRequest>,
-    receiver: Arc<Mutex<Receiver<TypingRequest>>>,
-    use_direct_execution: bool,
+#[derive(Debug)]
+enum TypingCommand {
+    Type { text: String, add_space: bool },
+    Shutdown,
 }
 
 impl TypingQueue {
     pub fn new(use_direct_execution: bool) -> Self {
-        let (sender, receiver) = mpsc::channel();
-        
-        Self {
-            sender,
-            receiver: Arc::new(Mutex::new(receiver)),
-            use_direct_execution,
-        }
-    }
-
-    pub fn queue_typing(&self, text: String, add_space: bool) -> VoicyResult<()> {
-        if text.is_empty() && !add_space {
-            return Ok(());
-        }
-
-        if self.use_direct_execution {
-            self.execute_direct_typing(text, add_space)
+        if use_direct_execution {
+            // Direct execution mode: use a single worker thread instead of spawning per-operation
+            let (sender, receiver) = mpsc::channel();
+            
+            let worker_handle = thread::spawn(move || {
+                Self::worker_loop(receiver);
+            });
+            
+            Self {
+                sender: Some(sender),
+                worker_handle: Some(worker_handle),
+                use_direct_execution,
+            }
         } else {
-            self.queue_for_main_thread(text, add_space)
+            // Main thread mode: no worker needed
+            Self {
+                sender: None,
+                worker_handle: None,
+                use_direct_execution,
+            }
         }
     }
-
-    fn execute_direct_typing(&self, text: String, add_space: bool) -> VoicyResult<()> {
-        println!("💬 Direct typing execution: \"{}\"", text);
+    
+    fn worker_loop(receiver: Receiver<TypingCommand>) {
+        // Create Enigo once for the entire worker lifetime
+        let mut enigo = match Enigo::new(&Settings::default()) {
+            Ok(e) => {
+                println!("✅ Typing worker initialized");
+                e
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to initialize typing worker: {}", e);
+                return;
+            }
+        };
         
-        thread::spawn(move || {
-            match Enigo::new(&Settings::default()) {
-                Ok(mut enigo) => {
-                    if add_space {
-                        if let Err(e) = enigo.text(" ") {
-                            eprintln!("❌ Failed to type space: {}", e);
-                            return;
+        // Track consecutive failures for circuit breaker pattern
+        let mut consecutive_failures = 0;
+        const MAX_CONSECUTIVE_FAILURES: u32 = 5;
+        
+        // Process commands from the queue
+        while let Ok(command) = receiver.recv() {
+            match command {
+                TypingCommand::Type { text, add_space } => {
+                    // Circuit breaker: skip if too many failures
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                        // Try to recreate Enigo after cooldown
+                        thread::sleep(Duration::from_millis(500));
+                        match Enigo::new(&Settings::default()) {
+                            Ok(new_enigo) => {
+                                enigo = new_enigo;
+                                consecutive_failures = 0;
+                                println!("🔄 Typing system recovered");
+                            }
+                            Err(e) => {
+                                eprintln!("❌ Still cannot initialize typing: {}", e);
+                                continue;
+                            }
                         }
                     }
                     
-                    if !text.is_empty() {
-                        match enigo.text(&text) {
-                            Ok(()) => {
-                                println!("✅ Successfully typed: \"{}\"", text);
-                            }
-                            Err(e) => {
-                                eprintln!("❌ Failed to type \"{}\": {}", text, e);
-                            }
+                    // Perform typing with simple retry
+                    let success = Self::type_with_retry(&mut enigo, &text, add_space);
+                    
+                    if success {
+                        consecutive_failures = 0;
+                    } else {
+                        consecutive_failures += 1;
+                        if consecutive_failures == MAX_CONSECUTIVE_FAILURES {
+                            eprintln!("⚠️ Typing system entering recovery mode");
                         }
                     }
                 }
-                Err(e) => {
-                    eprintln!("❌ Failed to create Enigo: {}", e);
-                }
-            }
-        });
-        
-        Ok(())
-    }
-
-    fn queue_for_main_thread(&self, text: String, add_space: bool) -> VoicyResult<()> {
-        let request = TypingRequest { text, add_space };
-        
-        self.sender.send(request).map_err(|e| {
-            VoicyError::WindowOperationFailed(format!("Failed to queue typing request: {}", e))
-        })?;
-        
-        Ok(())
-    }
-
-    pub fn process_queue(&self) -> VoicyResult<usize> {
-        if self.use_direct_execution {
-            return Ok(0);
-        }
-        
-        let mut processed = 0;
-        
-        let receiver_guard = self.receiver.lock().map_err(|e| {
-            VoicyError::WindowOperationFailed(format!("Failed to lock typing queue receiver: {}", e))
-        })?;
-
-        let mut requests = Vec::new();
-        while let Ok(request) = receiver_guard.try_recv() {
-            requests.push(request);
-        }
-        drop(receiver_guard);
-
-        if !requests.is_empty() {
-            println!("🔤 Processing {} typing requests on main thread", requests.len());
-            
-            let mut enigo = Enigo::new(&Settings::default()).map_err(|e| {
-                VoicyError::WindowOperationFailed(format!("Failed to create Enigo on main thread: {}", e))
-            })?;
-            
-            for request in requests {
-                if self.execute_typing_request(&mut enigo, &request)? {
-                    processed += 1;
+                TypingCommand::Shutdown => {
+                    println!("🛑 Typing worker shutting down");
+                    break;
                 }
             }
         }
-
-        Ok(processed)
     }
-
-    fn execute_typing_request(&self, enigo: &mut Enigo, request: &TypingRequest) -> VoicyResult<bool> {
-        if request.add_space {
-            enigo.text(" ").map_err(|e| {
-                VoicyError::WindowOperationFailed(format!("Failed to type space: {}", e))
-            })?;
-        }
-
-        if !request.text.is_empty() {
-            enigo.text(&request.text).map_err(|e| {
-                VoicyError::WindowOperationFailed(format!("Failed to type \"{}\": {}", request.text, e))
-            })?;
+    
+    fn type_with_retry(enigo: &mut Enigo, text: &str, add_space: bool) -> bool {
+        const MAX_RETRIES: u32 = 2;
+        
+        for attempt in 0..=MAX_RETRIES {
+            let mut success = true;
             
-            println!("💬 Typed: \"{}\"", request.text);
+            // Add space if requested
+            if add_space {
+                if let Err(e) = enigo.text(" ") {
+                    if attempt == MAX_RETRIES {
+                        eprintln!("❌ Failed to type space: {}", e);
+                    }
+                    success = false;
+                }
+            }
+            
+            // Type the main text
+            if !text.is_empty() && success {
+                match enigo.text(text) {
+                    Ok(()) => return true, // Success!
+                    Err(e) => {
+                        if attempt == MAX_RETRIES {
+                            eprintln!("❌ Failed to type text: {}", e);
+                        }
+                        success = false;
+                    }
+                }
+            }
+            
+            if success {
+                return true;
+            }
+            
+            // Exponential backoff before retry: 10ms, 20ms, 40ms
+            if attempt < MAX_RETRIES {
+                thread::sleep(Duration::from_millis(10 << attempt));
+            }
         }
-
-        Ok(true)
+        
+        false
     }
-
-    pub fn initialize_on_main_thread(&self) -> VoicyResult<()> {
-        if self.use_direct_execution {
-            println!("✅ Typing queue using direct execution mode");
+    
+    pub fn queue_typing(&self, text: String, add_space: bool) -> VoicyResult<()> {
+        // Skip empty operations
+        if text.is_empty() && !add_space {
             return Ok(());
         }
         
-        match Enigo::new(&Settings::default()) {
-            Ok(_) => {
-                println!("✅ Typing queue initialized on main thread");
-                Ok(())
+        if let Some(ref sender) = self.sender {
+            // Send to worker thread (non-blocking)
+            sender.send(TypingCommand::Type { text: text.clone(), add_space })
+                .map_err(|e| VoicyError::WindowOperationFailed(
+                    format!("Typing worker disconnected: {}", e)
+                ))?;
+            
+            // Log for debugging (remove excessive logging from worker)
+            if !text.is_empty() {
+                println!("💬 Queued: \"{}\"", text);
             }
-            Err(e) => {
-                Err(VoicyError::WindowOperationFailed(
-                    format!("Failed to initialize Enigo on main thread: {}", e)
-                ))
-            }
+        } else {
+            // Main thread mode - execute directly with cached Enigo
+            self.execute_on_main_thread(text, add_space)?;
         }
+        
+        Ok(())
     }
+    
+    fn execute_on_main_thread(&self, text: String, add_space: bool) -> VoicyResult<()> {
+        // Create Enigo instance for this operation (can't cache on macOS due to Send constraints)
+        let mut enigo = Enigo::new(&Settings::default())
+            .map_err(|e| VoicyError::WindowOperationFailed(
+                format!("Failed to create Enigo: {}", e)
+            ))?;
+        
+        // Type with error handling
+        if add_space {
+            enigo.text(" ").map_err(|e| 
+                VoicyError::WindowOperationFailed(format!("Failed to type space: {}", e))
+            )?;
+        }
+        
+        if !text.is_empty() {
+            enigo.text(&text).map_err(|e|
+                VoicyError::WindowOperationFailed(format!("Failed to type text: {}", e))
+            )?;
+            println!("💬 Typed: \"{}\"", text);
+        }
+        
+        Ok(())
+    }
+    
+    pub fn process_queue(&self) -> VoicyResult<usize> {
+        // Only relevant for main thread mode without worker
+        if self.sender.is_some() {
+            return Ok(0); // Worker handles everything
+        }
+        
+        // In main thread mode, typing is synchronous, so nothing to process
+        Ok(0)
+    }
+    
+    pub fn initialize_on_main_thread(&self) -> VoicyResult<()> {
+        if self.sender.is_some() {
+            println!("✅ Typing queue using optimized worker thread");
+            return Ok(());
+        }
+        
+        // Test that we can create Enigo on main thread
+        let _test = Enigo::new(&Settings::default())
+            .map_err(|e| VoicyError::WindowOperationFailed(
+                format!("Failed to initialize Enigo: {}", e)
+            ))?;
+        
+        println!("✅ Typing queue initialized on main thread");
+        Ok(())
+    }
+}
 
-    pub fn get_sender(&self) -> Sender<TypingRequest> {
-        self.sender.clone()
+impl Drop for TypingQueue {
+    fn drop(&mut self) {
+        // Clean shutdown of worker thread
+        if let Some(sender) = self.sender.take() {
+            let _ = sender.send(TypingCommand::Shutdown);
+        }
+        
+        if let Some(handle) = self.worker_handle.take() {
+            let _ = handle.join();
+        }
     }
 }
 
 impl Clone for TypingQueue {
     fn clone(&self) -> Self {
+        // For cloning, we share the same worker thread
         Self {
             sender: self.sender.clone(),
-            receiver: Arc::clone(&self.receiver),
+            worker_handle: None, // Clones don't own the worker
             use_direct_execution: self.use_direct_execution,
         }
     }
 }
 
+// Keep diagnostic function for compatibility
 pub fn run_typing_diagnostic() {
     println!("🔍 Running typing diagnostic...");
     
@@ -182,7 +257,7 @@ pub fn run_typing_diagnostic() {
             
             for i in (1..=5).rev() {
                 println!("   ⏳ {}...", i);
-                thread::sleep(std::time::Duration::from_secs(1));
+                thread::sleep(Duration::from_secs(1));
             }
             
             println!("   🚀 Attempting to type...");
@@ -198,7 +273,7 @@ pub fn run_typing_diagnostic() {
             }
             
             println!("\n3. Testing individual key simulation...");
-            thread::sleep(std::time::Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(500));
             
             let test_chars = ['T', 'e', 's', 't'];
             for ch in test_chars {
@@ -206,46 +281,16 @@ pub fn run_typing_diagnostic() {
                     Ok(()) => println!("   ✅ Key '{}' sent successfully", ch),
                     Err(e) => println!("   ❌ Key '{}' failed: {}", ch, e),
                 }
-                thread::sleep(std::time::Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(100));
             }
-            
         }
         Err(e) => {
             println!("   ❌ Failed to initialize Enigo: {}", e);
         }
     }
     
-    println!("\n4. Testing alternative Enigo settings...");
-    
-    let custom_settings = Settings {
-        release_keys_when_dropped: true,
-        ..Settings::default()
-    };
-    
-    match Enigo::new(&custom_settings) {
-        Ok(mut enigo) => {
-            println!("   ✅ Custom settings Enigo initialized");
-            match enigo.text(" (custom settings)") {
-                Ok(()) => println!("   ✅ Custom settings typing succeeded"),
-                Err(e) => println!("   ❌ Custom settings typing failed: {}", e),
-            }
-        }
-        Err(e) => {
-            println!("   ❌ Custom settings Enigo failed: {}", e);
-        }
-    }
-    
-    println!("\n5. System Information:");
+    println!("\n4. System Information:");
     println!("   📱 Platform: macOS");
-    println!("   🔒 Accessibility permissions required for typing to other apps");
-    println!("   ⚙️  To grant permissions:");
-    println!("      1. Open System Preferences → Security & Privacy");
-    println!("      2. Click 'Privacy' tab");
-    println!("      3. Select 'Accessibility' in the left sidebar");
-    println!("      4. Click the lock icon to make changes");
-    println!("      5. Click '+' and add the Voicy application");
-    println!("      6. Make sure Voicy is checked");
-    
+    println!("   🔒 Accessibility permissions required");
     println!("\n✅ Diagnostic complete!");
-    println!("   If typing didn't work, the most likely cause is missing macOS accessibility permissions.");
 }

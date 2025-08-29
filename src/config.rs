@@ -19,9 +19,9 @@ pub struct AudioConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamingConfig {
-    pub enabled: bool,               // Enable continuous streaming mode
-    pub process_interval_ms: u32,    // Process every N milliseconds
-    pub min_initial_audio_ms: u32,   // Wait for N ms before first inference
+    pub enabled: bool,             // Enable continuous streaming mode
+    pub process_interval_ms: u32,  // Process every N milliseconds
+    pub min_initial_audio_ms: u32, // Wait for N ms before first inference
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,9 +57,9 @@ impl Default for Config {
                 target_sample_rate: 16000,
             },
             streaming: StreamingConfig {
-                enabled: true,  // true = type while speaking, false = type after release
+                enabled: false,            // true = type while speaking, false = type after release
                 process_interval_ms: 250,  // Optimized for lower latency
-                min_initial_audio_ms: 300,  // Reduced for faster response
+                min_initial_audio_ms: 300, // Reduced for faster response
             },
             model: ModelConfig {
                 model_name: "mlx-community/parakeet-tdt-0.6b-v2".to_string(),
@@ -76,8 +76,8 @@ impl Default for Config {
                 add_space_between_utterances: true,
             },
             hotkeys: HotkeyConfig {
-                toggle_window: None,  // Disabled by default
-                push_to_talk: "Space".to_string(),  // Hold to record
+                toggle_window: None,               // Disabled by default
+                push_to_talk: "Space".to_string(), // Hold to record
             },
         }
     }

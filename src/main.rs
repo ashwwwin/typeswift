@@ -143,11 +143,13 @@ impl Voicy {
                         String::new()
                     };
 
-                    // Type the text if enabled
-                    if !final_text.is_empty() && self.config.output.enable_typing {
+                    // Type the text if enabled (only in non-streaming mode, as streaming types live)
+                    if !final_text.is_empty() && self.config.output.enable_typing && !self.config.streaming.enabled {
                         let add_space = self.config.output.add_space_between_utterances;
-                        println!("💬 Typing: '{}'", final_text);
+                        println!("💬 Typing final text: '{}'", final_text);
                         self.typing_queue.queue_typing(final_text, add_space)?;
+                    } else if self.config.streaming.enabled && !final_text.is_empty() {
+                        println!("📝 Streaming mode - text was already typed live");
                     }
 
                     self.state.set_recording_state(RecordingState::Idle);
