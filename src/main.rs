@@ -6,6 +6,7 @@ mod input;
 mod output;
 mod state;
 mod streaming_manager;
+mod swift_ffi;
 mod window;
 
 use audio::ImprovedAudioProcessor as AudioProcessor;
