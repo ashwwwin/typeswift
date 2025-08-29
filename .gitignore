@@ -2,3 +2,7 @@
 /samples
 .DS_Store
 /parakeet-coreml
+.claude
+.build
+/parakeet-tdt-0.6b-v3-coreml
+/parakeet-tdt-0.6b-v2-coreml
