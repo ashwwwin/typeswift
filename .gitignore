@@ -4,7 +4,8 @@ app/samples
 app/parakeet-coreml
 .claude
 app/.build
+parakeet-tdt-0.6b-v3-coreml
 app/parakeet-tdt-0.6b-v3-coreml
 app/parakeet-tdt-0.6b-v2-coreml
 app/VoicySwift/.build
-app/parakeet-test
+app/parakeet-test               
