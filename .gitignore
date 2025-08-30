@@ -1,8 +1,10 @@
-/target
-/samples
+app/target
+app/samples
 .DS_Store
-/parakeet-coreml
+app/parakeet-coreml
 .claude
-.build
-/parakeet-tdt-0.6b-v3-coreml
-/parakeet-tdt-0.6b-v2-coreml
+app/.build
+app/parakeet-tdt-0.6b-v3-coreml
+app/parakeet-tdt-0.6b-v2-coreml
+app/VoicySwift/.build
+app/parakeet-test
