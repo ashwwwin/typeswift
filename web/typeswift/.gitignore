@@ -1,32 +1,19 @@
-app/target
-app/samples
-.DS_Store
-app/parakeet-coreml
-.claude
-app/.build
-parakeet-tdt-0.6b-v3-coreml
-app/parakeet-tdt-0.6b-v3-coreml
-app/parakeet-tdt-0.6b-v2-coreml
-app/VoicySwift/.build
-app/parakeet-test
-app/Voicy.app
-
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/web/node_modules
-/web/.pnp
-/web.pnp.js
+/node_modules
+/.pnp
+.pnp.js
 
 # testing
 /coverage
 
 # next.js
-/web/.next/
-/web/out/
+/.next/
+/out/
 
 # production
-/web/build
+/build
 
 # misc
 .DS_Store
