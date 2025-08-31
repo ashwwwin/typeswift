@@ -3,6 +3,7 @@ mod config;
 mod error;
 mod event_loop;
 mod input;
+mod menubar_ffi;
 mod output;
 mod state;
 mod streaming_manager;
@@ -14,15 +15,16 @@ use config::Config;
 use error::VoicyResult;
 use event_loop::{EventCallback, EventLoop};
 use gpui::{
-    App, Application, Bounds, Context, Window, WindowBounds, WindowOptions, div, point, prelude::*,
-    px, rgb, size,
+    div, point, prelude::*, px, rgb, size, App, Application, Bounds, Context, Window, WindowBounds,
+    WindowOptions,
 };
 use input::{HotkeyEvent, HotkeyHandler};
-use output::{TypingQueue, run_typing_diagnostic};
+use menubar_ffi::voicy_reset_first_launch;
+use output::{run_typing_diagnostic, TypingQueue};
 use state::{AppStateManager, RecordingState};
-use streaming_manager::StreamingManager;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use streaming_manager::StreamingManager;
 use window::WindowManager;
 
 struct Voicy {
@@ -54,7 +56,7 @@ impl Voicy {
 
         let typing_queue = TypingQueue::new(true);
         let streaming_manager = StreamingManager::new(typing_queue.clone());
-        
+
         Self {
             state,
             window_manager: WindowManager::new(),
@@ -105,7 +107,7 @@ impl Voicy {
                     println!("🎙️ Push-to-talk PRESSED - Starting recording");
                     self.state.set_recording_state(RecordingState::Recording);
                     self.state.clear_transcription();
-                    self.streaming_manager.reset();  // Reset streaming manager
+                    self.streaming_manager.reset(); // Reset streaming manager
                     self.window_manager.show_without_focus()?;
 
                     // Start recording in audio processor
@@ -145,7 +147,10 @@ impl Voicy {
                     };
 
                     // Type the text if enabled (only in non-streaming mode, as streaming types live)
-                    if !final_text.is_empty() && self.config.output.enable_typing && !self.config.streaming.enabled {
+                    if !final_text.is_empty()
+                        && self.config.output.enable_typing
+                        && !self.config.streaming.enabled
+                    {
                         let add_space = self.config.output.add_space_between_utterances;
                         println!("💬 Typing final text: '{}'", final_text);
                         self.typing_queue.queue_typing(final_text, add_space)?;
@@ -219,8 +224,11 @@ impl Voicy {
                                         println!("🎙️ Starting recording");
                                         state.set_recording_state(RecordingState::Recording);
                                         state.clear_transcription();
-                                        streaming_manager.reset();  // Reset for new recording
+                                        streaming_manager.reset(); // Reset for new recording
                                         window_manager.show_without_focus().ok();
+
+                                        // Update menu bar icon
+                                        menubar_ffi::MenuBarController::set_recording(true);
 
                                         if let Ok(mut audio) = audio.lock() {
                                             audio.start_recording().ok();
@@ -233,6 +241,9 @@ impl Voicy {
                                         state.set_recording_state(RecordingState::Processing);
                                         window_manager.hide().ok();
 
+                                        // Update menu bar icon
+                                        menubar_ffi::MenuBarController::set_recording(false);
+
                                         let final_text = if let Ok(mut audio) = audio.lock() {
                                             audio.stop_recording().unwrap_or_default()
                                         } else {
@@ -241,19 +252,29 @@ impl Voicy {
 
                                         if config.streaming.enabled {
                                             // Streaming mode: only type remaining text not yet typed
-                                            if let Some(corrected_text) = streaming_manager.get_pending_corrections() {
-                                                println!("🔄 Corrections pending: '{}'", corrected_text);
+                                            if let Some(corrected_text) =
+                                                streaming_manager.get_pending_corrections()
+                                            {
+                                                println!(
+                                                    "🔄 Corrections pending: '{}'",
+                                                    corrected_text
+                                                );
                                             }
-                                            
-                                            if !final_text.is_empty() && config.output.enable_typing {
-                                                let current_transcription = state.get_transcription();
+
+                                            if !final_text.is_empty() && config.output.enable_typing
+                                            {
+                                                let current_transcription =
+                                                    state.get_transcription();
                                                 if final_text.len() > current_transcription.len() {
-                                                    let remaining_text = &final_text[current_transcription.len()..];
+                                                    let remaining_text =
+                                                        &final_text[current_transcription.len()..];
                                                     if !remaining_text.is_empty() {
                                                         typing_queue
                                                             .queue_typing(
                                                                 remaining_text.to_string(),
-                                                                config.output.add_space_between_utterances,
+                                                                config
+                                                                    .output
+                                                                    .add_space_between_utterances,
                                                             )
                                                             .ok();
                                                     }
@@ -261,7 +282,8 @@ impl Voicy {
                                             }
                                         } else {
                                             // Normal mode: type all text at once after release
-                                            if !final_text.is_empty() && config.output.enable_typing {
+                                            if !final_text.is_empty() && config.output.enable_typing
+                                            {
                                                 println!("💬 Typing final text: '{}'", final_text);
                                                 typing_queue
                                                     .queue_typing(
@@ -282,12 +304,14 @@ impl Voicy {
                 }
 
                 // Poll for live transcriptions only if streaming is enabled
-                if config.streaming.enabled && state.get_recording_state() == RecordingState::Recording {
+                if config.streaming.enabled
+                    && state.get_recording_state() == RecordingState::Recording
+                {
                     if let Ok(audio) = audio.lock() {
                         if let Some(live_text) = audio.get_live_transcription() {
                             // Update UI with live transcription
                             state.set_transcription(live_text.clone());
-                            
+
                             // Type incrementally in streaming mode
                             if config.output.enable_typing {
                                 streaming_manager.process_live_text(&live_text);
@@ -350,13 +374,6 @@ impl Render for Voicy {
 }
 
 fn main() {
-    // Check for diagnostic flag
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 && args[1] == "--typing-diagnostic" {
-        run_typing_diagnostic();
-        return;
-    }
-
     // Load configuration
     let config = Config::load().unwrap_or_default();
 
@@ -375,7 +392,24 @@ fn main() {
     // Clone config for the closure
     let config_clone = config.clone();
 
+    // Set environment variable to hide dock icon
+    unsafe {
+        std::env::set_var("GPUI_HIDE_DOCK", "1");
+    }
+
     Application::new().run(move |cx: &mut App| {
+        // Initialize menu bar and hide dock icon AFTER GPUI starts
+        // Try multiple times to ensure it sticks
+        std::thread::spawn(|| {
+            for i in 0..5 {
+                std::thread::sleep(std::time::Duration::from_millis(100 * i));
+                menubar_ffi::MenuBarController::hide_dock_icon();
+                if i == 0 {
+                    menubar_ffi::MenuBarController::setup();
+                }
+            }
+        });
+
         let window_size = size(
             px(config_clone.ui.window_width),
             px(config_clone.ui.window_height),

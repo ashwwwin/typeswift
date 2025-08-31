@@ -42,17 +42,62 @@ import FluidAudio
                             models = try await AsrModels.load(from: url)
                             print("✅ Models loaded from: \(path)")
                         } else {
-                            // Try default local path first
-                            let defaultPath = URL(fileURLWithPath: "/Users/mac/Desktop/voicy/parakeet-tdt-0.6b-v3-coreml")
-                            do {
-                                models = try await AsrModels.load(from: defaultPath)
-                                print("✅ Models loaded from default path")
-                            } catch {
-                                // Fall back to downloading
-                                print("📥 Downloading models...")
+                            // Check common local paths first
+                            let possiblePaths = [
+                                // User's home directory
+                                FileManager.default.homeDirectoryForCurrentUser
+                                    .appendingPathComponent(".voicy/models/parakeet-tdt-0.6b-v3-coreml"),
+                                // Application Support
+                                FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+                                    .appendingPathComponent("Voicy/models/parakeet-tdt-0.6b-v3-coreml"),
+                                // Development path
+                                URL(fileURLWithPath: "/Users/mac/Desktop/voicy/parakeet-tdt-0.6b-v3-coreml")
+                            ].compactMap { $0 }
+                            
+                            var loadedModels: AsrModels? = nil
+                            for possiblePath in possiblePaths {
+                                if FileManager.default.fileExists(atPath: possiblePath.path) {
+                                    do {
+                                        loadedModels = try await AsrModels.load(from: possiblePath)
+                                        print("✅ Models loaded from: \(possiblePath.path)")
+                                        break
+                                    } catch {
+                                        print("⚠️ Failed to load from \(possiblePath.path): \(error)")
+                                        continue
+                                    }
+                                }
+                            }
+                            
+                            if let existingModels = loadedModels {
+                                models = existingModels
+                            } else {
+                                // Download models if not found locally
+                                print("📥 Models not found locally. Downloading...")
                                 let downloadedPath = try await AsrModels.download()
+                                
+                                // Save to Application Support for future use
+                                if let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+                                    let voicyModelsDir = appSupportURL
+                                        .appendingPathComponent("Voicy")
+                                        .appendingPathComponent("models")
+                                    
+                                    do {
+                                        try FileManager.default.createDirectory(at: voicyModelsDir, withIntermediateDirectories: true)
+                                        let targetPath = voicyModelsDir.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml")
+                                        
+                                        // Copy downloaded models to Application Support
+                                        if FileManager.default.fileExists(atPath: targetPath.path) {
+                                            try FileManager.default.removeItem(at: targetPath)
+                                        }
+                                        try FileManager.default.copyItem(at: downloadedPath, to: targetPath)
+                                        print("💾 Models saved to: \(targetPath.path)")
+                                    } catch {
+                                        print("⚠️ Failed to save models to Application Support: \(error)")
+                                    }
+                                }
+                                
                                 models = try await AsrModels.load(from: downloadedPath)
-                                print("✅ Models downloaded")
+                                print("✅ Models downloaded and loaded")
                             }
                         }
                         
