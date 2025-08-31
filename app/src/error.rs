@@ -28,12 +28,6 @@ impl std::error::Error for VoicyError {}
 
 pub type VoicyResult<T> = Result<T, VoicyError>;
 
-impl From<pyo3::PyErr> for VoicyError {
-    fn from(err: pyo3::PyErr) -> Self {
-        VoicyError::ModelLoadFailed(format!("Python error: {}", err))
-    }
-}
-
 impl From<anyhow::Error> for VoicyError {
     fn from(err: anyhow::Error) -> Self {
         VoicyError::ConfigLoadFailed(format!("Anyhow error: {}", err))
