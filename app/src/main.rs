@@ -3,6 +3,8 @@ mod config;
 mod error;
 mod event_loop;
 mod input;
+#[cfg(target_os = "macos")]
+mod keyboard_ffi;
 mod menubar_ffi;
 mod output;
 mod state;

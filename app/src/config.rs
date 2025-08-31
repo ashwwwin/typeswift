@@ -62,7 +62,7 @@ impl Default for Config {
                 min_initial_audio_ms: 300, // Reduced for faster response
             },
             model: ModelConfig {
-                model_name: "mlx-community/parakeet-tdt-0.6b-v2".to_string(),
+                model_name: "mlx-community/parakeet-tdt-0.6b-v3".to_string(),
                 left_context_seconds: 5,
                 right_context_seconds: 3,
             },
@@ -76,8 +76,9 @@ impl Default for Config {
                 add_space_between_utterances: true,
             },
             hotkeys: HotkeyConfig {
-                toggle_window: None,               // Disabled by default
-                push_to_talk: "Space".to_string(), // Hold to record
+                toggle_window: None, // Disabled by default
+                push_to_talk: "fn".to_string(), // Use fn key on macOS (requires accessibility permissions)
+                                                // Alternative: "cmd+space" or "opt+space"
             },
         }
     }
