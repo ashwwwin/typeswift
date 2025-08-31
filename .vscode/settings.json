@@ -1,0 +1,7 @@
+{
+  "rust-analyzer.procMacro.enable": false,
+  "rust-analyzer.linkedProjects": ["Cargo.toml"],
+  "rust-analyzer.cargo.features": ["default"],
+  "rust-analyzer.workspace.discoverConfig": null,
+  "rust-analyzer.cargo.buildScripts.overrideCommand": null
+}
