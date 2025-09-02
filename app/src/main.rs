@@ -117,15 +117,38 @@ impl Render for PreferencesView {
             }
         };
 
+        let cfg_for_reopen = self.config.clone();
+        let flag_for_reopen = self.open_flag.clone();
+
         let typing_row = div()
             .w_full()
             .p(px(6.0))
             .border_b_1()
             .border_color(rgb(0x374151))
             .child(format!("Typing: {}", if typing_enabled { "On" } else { "Off" }))
-            .on_mouse_down(gpui::MouseButton::Left, move |_, _window, _cx| {
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, app_cx| {
                 toggle_typing();
+                // Force re-render by recreating the window
+                window.remove_window();
+                let cfg = cfg_for_reopen.clone();
+                let f = flag_for_reopen.clone();
+                let bounds = Bounds::centered(None, size(px(360.0), px(220.0)), app_cx);
+                app_cx
+                    .open_window(
+                        WindowOptions {
+                            window_bounds: Some(WindowBounds::Windowed(bounds)),
+                            ..Default::default()
+                        },
+                        move |_, cx| {
+                            let open_flag = f.clone();
+                            cx.new(|_| PreferencesView { config: cfg.clone(), open_flag })
+                        },
+                    )
+                    .unwrap();
             });
+
+        let cfg_for_reopen2 = self.config.clone();
+        let flag_for_reopen2 = self.open_flag.clone();
 
         let add_space_row = div()
             .w_full()
@@ -136,9 +159,28 @@ impl Render for PreferencesView {
                 "Add space between utterances: {}",
                 if add_space { "On" } else { "Off" }
             ))
-            .on_mouse_down(gpui::MouseButton::Left, move |_, _window, _cx| {
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, app_cx| {
                 toggle_add_space();
+                window.remove_window();
+                let cfg = cfg_for_reopen2.clone();
+                let f = flag_for_reopen2.clone();
+                let bounds = Bounds::centered(None, size(px(360.0), px(220.0)), app_cx);
+                app_cx
+                    .open_window(
+                        WindowOptions {
+                            window_bounds: Some(WindowBounds::Windowed(bounds)),
+                            ..Default::default()
+                        },
+                        move |_, cx| {
+                            let open_flag = f.clone();
+                            cx.new(|_| PreferencesView { config: cfg.clone(), open_flag })
+                        },
+                    )
+                    .unwrap();
             });
+
+        let cfg_for_reopen3 = self.config.clone();
+        let flag_for_reopen3 = self.open_flag.clone();
 
         let streaming_row = div()
             .w_full()
@@ -146,8 +188,24 @@ impl Render for PreferencesView {
             .border_b_1()
             .border_color(rgb(0x374151))
             .child(format!("Streaming: {}", if streaming_enabled { "On" } else { "Off" }))
-            .on_mouse_down(gpui::MouseButton::Left, move |_, _window, _cx| {
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, app_cx| {
                 toggle_streaming();
+                window.remove_window();
+                let cfg = cfg_for_reopen3.clone();
+                let f = flag_for_reopen3.clone();
+                let bounds = Bounds::centered(None, size(px(360.0), px(220.0)), app_cx);
+                app_cx
+                    .open_window(
+                        WindowOptions {
+                            window_bounds: Some(WindowBounds::Windowed(bounds)),
+                            ..Default::default()
+                        },
+                        move |_, cx| {
+                            let open_flag = f.clone();
+                            cx.new(|_| PreferencesView { config: cfg.clone(), open_flag })
+                        },
+                    )
+                    .unwrap();
             });
 
         div()
