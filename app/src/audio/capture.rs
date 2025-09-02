@@ -1,4 +1,3 @@
-use crate::audio::stream_holder::StreamHolder;
 use crate::error::{VoicyError, VoicyResult};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use parking_lot::RwLock;
@@ -10,7 +9,14 @@ pub struct AudioCapture {
     consumer: Arc<parking_lot::Mutex<HeapCons<f32>>>,
     is_recording: Arc<RwLock<bool>>,
     sample_rate: u32,
-    _stream_handle: Arc<()>, // Handle to keep the stream alive
+}
+
+/// Send-safe reader that can be moved to worker threads without carrying the non-Send CPAL stream.
+#[derive(Clone)]
+pub struct AudioReader {
+    consumer: Arc<parking_lot::Mutex<HeapCons<f32>>>,
+    is_recording: Arc<RwLock<bool>>,
+    sample_rate: u32,
 }
 
 impl AudioCapture {
@@ -113,14 +119,14 @@ impl AudioCapture {
 
         stream.play().map_err(|e| VoicyError::AudioInitFailed(format!("Failed to start stream: {}", e)))?;
         
-        // Keep stream alive using the holder
-        let stream_handle = StreamHolder::new(stream);
+        // Keep stream alive for program duration by leaking it.
+        // This avoids moving a non-Send CoreAudio stream across threads while keeping it running.
+        let _leaked_stream: &'static mut cpal::Stream = Box::leak(Box::new(stream));
         
         Ok(Self {
             consumer: Arc::new(parking_lot::Mutex::new(consumer)),
             is_recording,
             sample_rate: target_sample_rate,
-            _stream_handle: stream_handle,
         })
     }
 
@@ -158,6 +164,15 @@ impl AudioCapture {
     pub fn get_sample_rate(&self) -> u32 {
         self.sample_rate
     }
+
+    /// Create a Send-safe reader snapshot for use in worker threads.
+    pub fn reader(&self) -> AudioReader {
+        AudioReader {
+            consumer: Arc::clone(&self.consumer),
+            is_recording: Arc::clone(&self.is_recording),
+            sample_rate: self.sample_rate,
+        }
+    }
 }
 
 impl Clone for AudioCapture {
@@ -166,7 +181,31 @@ impl Clone for AudioCapture {
             consumer: Arc::clone(&self.consumer),
             is_recording: Arc::clone(&self.is_recording),
             sample_rate: self.sample_rate,
-            _stream_handle: Arc::clone(&self._stream_handle), // Shared handle is safe to clone
         }
+    }
+}
+
+impl AudioReader {
+    pub fn read_audio(&self, max_samples: usize) -> Vec<f32> {
+        let mut consumer = self.consumer.lock();
+        let mut samples = Vec::with_capacity(max_samples);
+
+        while samples.len() < max_samples {
+            if let Some(sample) = consumer.try_pop() {
+                samples.push(sample);
+            } else {
+                break;
+            }
+        }
+
+        samples
+    }
+
+    pub fn is_recording(&self) -> bool {
+        *self.is_recording.read()
+    }
+
+    pub fn get_sample_rate(&self) -> u32 {
+        self.sample_rate
     }
 }

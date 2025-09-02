@@ -83,7 +83,7 @@ impl AudioProcessor {
         let (stop_tx, stop_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
         
-        let capture = self.audio_capture.as_ref().unwrap().clone();
+        let capture = self.audio_capture.as_ref().unwrap().reader();
         let transcriber = self.transcriber.as_ref().unwrap().clone();
         let sample_rate = capture.get_sample_rate();
         
