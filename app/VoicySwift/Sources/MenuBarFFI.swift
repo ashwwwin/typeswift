@@ -1,6 +1,24 @@
 import Foundation
 import AppKit
 
+// Preferences callback wire-up
+private var preferencesCallback: (() -> Void)?
+
+@_cdecl("swift_register_preferences_callback")
+public func swift_register_preferences_callback(_ callback: @escaping @convention(c) () -> Void) {
+    preferencesCallback = {
+        callback()
+    }
+    // Register for Preferences notifications from the menu
+    NotificationCenter.default.addObserver(
+        forName: NSNotification.Name("VoicyOpenPreferences"),
+        object: nil,
+        queue: .main
+    ) { _ in
+        preferencesCallback?()
+    }
+}
+
 // FFI exports for menu bar functionality
 
 @_cdecl("voicy_setup_menubar")

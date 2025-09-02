@@ -141,8 +141,7 @@ import ServiceManagement
     }
     
     @objc private func openPreferences() {
-        // You can create a preferences window here
-        print("Opening preferences...")
+        // Notify Rust via registered preferences callback
         NotificationCenter.default.post(name: NSNotification.Name("VoicyOpenPreferences"), object: nil)
     }
     

@@ -10,9 +10,11 @@ unsafe extern "C" {
     fn swift_init_keyboard_monitor() -> bool;
     fn swift_shutdown_keyboard_monitor();
     fn swift_register_push_to_talk_callback(callback: extern "C" fn(bool));
+    fn swift_register_preferences_callback(callback: extern "C" fn());
 }
 
 static mut PUSH_TO_TALK_SENDER: Option<Sender<HotkeyEvent>> = None;
+static mut PREFERENCES_SENDER: Option<Sender<HotkeyEvent>> = None;
 
 pub fn init_keyboard_monitor() -> bool {
     unsafe { swift_init_keyboard_monitor() }
@@ -41,6 +43,21 @@ extern "C" fn handle_push_to_talk_event(is_pressed: bool) {
                 HotkeyEvent::PushToTalkReleased
             };
             let _ = sender.send(event);
+        }
+    }
+}
+
+pub fn register_preferences_callback(sender: Sender<HotkeyEvent>) {
+    unsafe {
+        PREFERENCES_SENDER = Some(sender);
+        swift_register_preferences_callback(handle_open_preferences);
+    }
+}
+
+extern "C" fn handle_open_preferences() {
+    unsafe {
+        if let Some(ref sender) = PREFERENCES_SENDER {
+            let _ = sender.send(HotkeyEvent::OpenPreferences);
         }
     }
 }
@@ -88,6 +105,7 @@ impl MenuBarController {
     pub fn quit() {
         unsafe { voicy_terminate_app() }
     }
+
 }
 
 // ===== Swift Transcriber FFI =====
@@ -188,4 +206,3 @@ impl Clone for SharedSwiftTranscriber {
         Self { inner: Arc::clone(&self.inner) }
     }
 }
-

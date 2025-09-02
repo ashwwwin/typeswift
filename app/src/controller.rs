@@ -18,7 +18,7 @@ pub struct AppController {
     typing_queue: TypingQueue,
     streaming_manager: StreamingManager,
     audio_processor: Arc<Mutex<AudioProcessor>>,
-    config: Config,
+    config: Arc<parking_lot::RwLock<Config>>,
 }
 
 impl AppController {
@@ -46,13 +46,15 @@ impl AppController {
             typing_queue,
             streaming_manager,
             audio_processor: Arc::new(Mutex::new(audio_processor)),
-            config,
+            config: Arc::new(parking_lot::RwLock::new(config)),
         }
     }
 
     pub fn state(&self) -> AppStateManager { self.state.clone() }
 
     pub fn window_manager(&self) -> WindowManager { self.window_manager.clone() }
+
+    pub fn config_handle(&self) -> Arc<parking_lot::RwLock<Config>> { self.config.clone() }
 
     pub fn start(self, receiver: Receiver<HotkeyEvent>) {
         // Spawn worker thread to process events and periodic tasks
@@ -84,7 +86,7 @@ impl AppController {
                     }
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                         // Periodic tasks (e.g., live transcription) if ever supported
-                        if config.streaming.enabled
+                        if config.read().streaming.enabled
                             && state.get_recording_state() == RecordingState::Recording
                         {
                             if let Ok(audio) = audio_processor.lock() {
@@ -93,7 +95,7 @@ impl AppController {
                                     state.set_transcription(live_text.clone());
 
                                     // Type incrementally in streaming mode
-                                    if config.output.enable_typing {
+                                    if config.read().output.enable_typing {
                                         streaming_manager.process_live_text(&live_text);
                                     }
                                 }
@@ -115,11 +117,15 @@ impl AppController {
         typing_queue: &TypingQueue,
         streaming_manager: &StreamingManager,
         audio_processor: &Arc<Mutex<AudioProcessor>>,
-        config: &Config,
+        config: &Arc<parking_lot::RwLock<Config>>,
         event: HotkeyEvent,
     ) -> VoicyResult<()> {
         println!("🎬 Controller handling event: {:?}", event);
         match event {
+            HotkeyEvent::OpenPreferences => {
+                // Handled by UI layer to open a separate GPUI window.
+                // No changes to the main status window here.
+            }
             HotkeyEvent::PushToTalkPressed => {
                 if state.can_start_recording() {
                     println!("🎙️ Push-to-talk PRESSED - Starting recording");
@@ -156,9 +162,9 @@ impl AppController {
                         String::new()
                     };
 
-                    if config.streaming.enabled {
+                    if config.read().streaming.enabled {
                         // Streaming mode: type remaining text not yet typed
-                        if !final_text.is_empty() && config.output.enable_typing {
+                        if !final_text.is_empty() && config.read().output.enable_typing {
                             let current_transcription = state.get_transcription();
                             if final_text.len() > current_transcription.len() {
                                 let remaining_text = &final_text[current_transcription.len()..];
@@ -166,7 +172,7 @@ impl AppController {
                                     typing_queue
                                         .queue_typing(
                                             remaining_text.to_string(),
-                                            config.output.add_space_between_utterances,
+                                            config.read().output.add_space_between_utterances,
                                         )
                                         .ok();
                                 }
@@ -174,12 +180,12 @@ impl AppController {
                         }
                     } else {
                         // Normal mode: type all text at once after release
-                        if !final_text.is_empty() && config.output.enable_typing {
+                        if !final_text.is_empty() && config.read().output.enable_typing {
                             println!("💬 Typing final text: '{}'", final_text);
                             typing_queue
                                 .queue_typing(
                                     final_text,
-                                    config.output.add_space_between_utterances,
+                                    config.read().output.add_space_between_utterances,
                                 )
                                 .ok();
                         }

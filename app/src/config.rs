@@ -48,6 +48,7 @@ pub struct OutputConfig {
 pub struct HotkeyConfig {
     pub toggle_window: Option<String>, // Optional separate toggle
     pub push_to_talk: String,          // Main push-to-talk hotkey
+    pub preferences: Option<String>,   // Open preferences/settings
 }
 
 impl Default for Config {
@@ -79,6 +80,7 @@ impl Default for Config {
                 toggle_window: None, // Disabled by default
                 push_to_talk: "fn".to_string(), // Use fn key on macOS (requires accessibility permissions)
                                                 // Alternative: "cmd+space" or "opt+space"
+                preferences: Some("cmd+,".to_string()),
             },
         }
     }
@@ -87,8 +89,7 @@ impl Default for Config {
 impl Config {
     pub fn load() -> Result<Self> {
         // Try to load from config file
-        if let Ok(home) = std::env::var("HOME") {
-            let config_path = PathBuf::from(home).join(".voicy").join("config.toml");
+        if let Some(config_path) = Self::config_path() {
             if config_path.exists() {
                 let contents = std::fs::read_to_string(config_path)?;
                 return Ok(toml::from_str(&contents)?);
@@ -103,5 +104,13 @@ impl Config {
         std::fs::create_dir_all(path.parent().unwrap())?;
         std::fs::write(path, toml_string)?;
         Ok(())
+    }
+
+    pub fn config_path() -> Option<PathBuf> {
+        if let Ok(home) = std::env::var("HOME") {
+            Some(PathBuf::from(home).join(".voicy").join("config.toml"))
+        } else {
+            None
+        }
     }
 }

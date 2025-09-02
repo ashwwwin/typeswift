@@ -14,6 +14,7 @@ pub struct AppStateManager {
     recording_state: Arc<RwLock<RecordingState>>,
     transcription: Arc<RwLock<String>>,
     is_window_visible: Arc<RwLock<bool>>,
+    is_preferences_visible: Arc<RwLock<bool>>,
     listeners: Arc<RwLock<Vec<Box<dyn Fn() + Send + Sync>>>>,
 }
 
@@ -23,6 +24,7 @@ impl AppStateManager {
             recording_state: Arc::new(RwLock::new(RecordingState::Idle)),
             transcription: Arc::new(RwLock::new(String::new())),
             is_window_visible: Arc::new(RwLock::new(false)),
+            is_preferences_visible: Arc::new(RwLock::new(false)),
             listeners: Arc::new(RwLock::new(Vec::new())),
         }
     }
@@ -67,6 +69,15 @@ impl AppStateManager {
         *self.is_window_visible.write() = visible;
         self.notify_listeners();
     }
+
+    pub fn is_preferences_visible(&self) -> bool {
+        *self.is_preferences_visible.read()
+    }
+
+    pub fn set_preferences_visible(&self, visible: bool) {
+        *self.is_preferences_visible.write() = visible;
+        self.notify_listeners();
+    }
     
     pub fn add_listener<F>(&self, listener: F) 
     where 
@@ -98,6 +109,7 @@ impl Clone for AppStateManager {
             recording_state: Arc::clone(&self.recording_state),
             transcription: Arc::clone(&self.transcription),
             is_window_visible: Arc::clone(&self.is_window_visible),
+            is_preferences_visible: Arc::clone(&self.is_preferences_visible),
             listeners: Arc::clone(&self.listeners),
         }
     }

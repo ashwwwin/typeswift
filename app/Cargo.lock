@@ -6093,6 +6093,7 @@ dependencies = [
  "global-hotkey",
  "gpui",
  "objc",
+ "once_cell",
  "parking_lot",
  "ringbuf",
  "rubato",

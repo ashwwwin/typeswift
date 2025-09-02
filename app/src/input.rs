@@ -17,12 +17,14 @@ pub enum HotkeyEvent {
     PushToTalkPressed,
     PushToTalkReleased,
     ToggleWindow,
+    OpenPreferences,
 }
 
 pub struct HotkeyHandler {
     manager: GlobalHotKeyManager,
     toggle_hotkey: Option<HotKey>,
     push_to_talk_hotkey: Option<HotKey>,
+    preferences_hotkey: Option<HotKey>,
     #[cfg(target_os = "macos")]
     uses_fn_key: bool,
 }
@@ -36,6 +38,7 @@ impl HotkeyHandler {
             manager,
             toggle_hotkey: None,
             push_to_talk_hotkey: None,
+            preferences_hotkey: None,
             #[cfg(target_os = "macos")]
             uses_fn_key: false,
         })
@@ -47,6 +50,9 @@ impl HotkeyHandler {
             let _ = self.manager.unregister(hotkey.clone());
         }
         if let Some(ref hotkey) = self.push_to_talk_hotkey {
+            let _ = self.manager.unregister(hotkey.clone());
+        }
+        if let Some(ref hotkey) = self.preferences_hotkey {
             let _ = self.manager.unregister(hotkey.clone());
         }
 
@@ -68,6 +74,14 @@ impl HotkeyHandler {
                     self.toggle_hotkey = Some(toggle_hotkey);
                     println!("✅ Registered toggle window: {}", toggle_key);
                 }
+                // Register preferences if specified
+                if let Some(ref prefs_key) = config.preferences {
+                    let prefs_hotkey = parse_hotkey(prefs_key)?;
+                    self.manager.register(prefs_hotkey.clone())
+                        .map_err(|e| VoicyError::HotkeyRegistrationFailed(format!("Failed to register preferences: {}", e)))?;
+                    self.preferences_hotkey = Some(prefs_hotkey);
+                    println!("✅ Registered preferences: {}", prefs_key);
+                }
                 
                 return Ok(());
             }
@@ -85,6 +99,14 @@ impl HotkeyHandler {
                 .map_err(|e| VoicyError::HotkeyRegistrationFailed(format!("Failed to register toggle: {}", e)))?;
             self.toggle_hotkey = Some(toggle_hotkey);
             println!("✅ Registered toggle window: {}", toggle_key);
+        }
+
+        if let Some(ref prefs_key) = config.preferences {
+            let prefs_hotkey = parse_hotkey(prefs_key)?;
+            self.manager.register(prefs_hotkey.clone())
+                .map_err(|e| VoicyError::HotkeyRegistrationFailed(format!("Failed to register preferences: {}", e)))?;
+            self.preferences_hotkey = Some(prefs_hotkey);
+            println!("✅ Registered preferences: {}", prefs_key);
         }
 
         Ok(())
@@ -112,6 +134,7 @@ impl HotkeyHandler {
         
         let toggle_hotkey = self.toggle_hotkey.clone();
         let push_to_talk_hotkey = self.push_to_talk_hotkey.clone();
+        let preferences_hotkey = self.preferences_hotkey.clone();
         let is_push_to_talk_active = Arc::new(Mutex::new(false));
 
         thread::spawn(move || {
@@ -127,6 +150,7 @@ impl HotkeyHandler {
                                 &toggle_hotkey,
                                 &push_to_talk_hotkey,
                                 &is_push_to_talk_active,
+                                &preferences_hotkey,
                             ) {
                                 println!("📤 Sending event: {:?}", hotkey_event);
                                 if let Err(e) = sender.send(hotkey_event) {
@@ -162,6 +186,7 @@ fn handle_hotkey_press(
     toggle_hotkey: &Option<HotKey>,
     push_to_talk_hotkey: &Option<HotKey>,
     is_push_to_talk_active: &Arc<Mutex<bool>>,
+    preferences_hotkey: &Option<HotKey>,
 ) -> Option<HotkeyEvent> {
     if let Some(ptt) = push_to_talk_hotkey {
         if ptt.id() == hotkey_id {
@@ -178,6 +203,13 @@ fn handle_hotkey_press(
         if toggle.id() == hotkey_id {
             println!("🔄 Toggle window hotkey pressed");
             return Some(HotkeyEvent::ToggleWindow);
+        }
+    }
+
+    if let Some(prefs) = preferences_hotkey {
+        if prefs.id() == hotkey_id {
+            println!("⚙️ Preferences hotkey pressed");
+            return Some(HotkeyEvent::OpenPreferences);
         }
     }
     
