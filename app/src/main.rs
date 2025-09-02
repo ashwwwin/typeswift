@@ -1,30 +1,18 @@
-mod audio;
-mod config;
-mod controller;
-mod error;
-mod event_loop;
-mod input;
-#[cfg(target_os = "macos")]
-mod keyboard_ffi;
-mod menubar_ffi;
-mod output;
-mod state;
-mod streaming_manager;
-mod swift_ffi;
-mod window;
+// Use the library crate modules
 
-use config::Config;
-use error::VoicyResult;
-use event_loop::{EventCallback, EventLoop};
+use voicy::config::Config;
 use gpui::{
     div, point, prelude::*, px, rgb, size, App, Application, Bounds, Context, Window, WindowBounds,
     WindowOptions,
 };
-use input::{HotkeyEvent, HotkeyHandler};
-use state::{AppStateManager, RecordingState};
+use voicy::input::{HotkeyEvent, HotkeyHandler};
+use voicy::controller::AppController;
+use voicy::state::{AppStateManager, RecordingState};
 use std::sync::{Arc, Mutex};
-use window::WindowManager;
+use voicy::window::WindowManager;
 use crossbeam_channel::bounded;
+#[cfg(target_os = "macos")]
+use voicy::platform::macos::ffi as menubar_ffi;
 
 struct VoicyView {
     state: AppStateManager,
@@ -163,22 +151,15 @@ fn main() {
 
         let _window_for_callback = window.clone();
 
-        // Create the event callback that will handle hotkey events
-        let tx_for_callback = event_tx.clone();
-        let event_callback: EventCallback = Arc::new(Mutex::new(move |event| {
-            println!("🎯 Event callback triggered for: {:?}", event);
-            // Forward the event to the controller channel
-            tx_for_callback
-                .send(event)
-                .map_err(|e| error::VoicyError::WindowOperationFailed(format!(
-                    "Failed to send event: {}",
-                    e
-                )))
-        }));
-
-        // Start the dedicated event loop
-        let event_loop = EventLoop::new(hotkey_receiver, event_callback);
-        let _event_loop_handle = event_loop.start();
+        // Forward hotkeys to controller channel directly
+        let tx_for_hotkeys = event_tx.clone();
+        std::thread::spawn(move || {
+            println!("🔄 Hotkey forwarder started");
+            while let Ok(event) = hotkey_receiver.recv() {
+                let _ = tx_for_hotkeys.send(event);
+            }
+            println!("🛑 Hotkey forwarder stopped");
+        });
 
         // Set up window properties
         if let Err(e) = WindowManager::setup_properties() {
@@ -186,7 +167,7 @@ fn main() {
         }
 
         // Start the controller after window setup so show/hide works
-        let controller = controller::AppController::new(config_clone.clone());
+        let controller = AppController::new(config_clone.clone());
         // Share state between UI and controller
         let state_for_view = controller.state();
         // Replace the VoicyView's state with the controller's state
@@ -205,9 +186,9 @@ fn main() {
         if let Some(ref key) = config_clone.hotkeys.toggle_window {
             println!("   Toggle window: {}", key);
         }
-        println!("✅ Event loop running independently of UI");
+        println!("✅ Hotkeys forwarding independently of UI");
 
-        // Run controller in background, consuming events from the event loop
+        // Run controller in background, consuming forwarded events
         controller.start(event_rx);
     });
 }

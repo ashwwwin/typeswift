@@ -1,12 +1,12 @@
-use crate::audio::ImprovedAudioProcessor as AudioProcessor;
+use crate::services::audio::ImprovedAudioProcessor as AudioProcessor;
 use crate::config::Config;
 use crate::error::VoicyResult;
 use crate::input::HotkeyEvent;
-use crate::menubar_ffi;
 use crate::output::TypingQueue;
 use crate::state::{AppStateManager, RecordingState};
-use crate::streaming_manager::StreamingManager;
 use crate::window::WindowManager;
+#[cfg(target_os = "macos")]
+use crate::platform::macos::ffi as menubar_ffi;
 use crossbeam_channel::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -129,6 +129,7 @@ impl AppController {
                     window_manager.show_without_focus()?;
 
                     // Update menu bar icon
+                    #[cfg(target_os = "macos")]
                     menubar_ffi::MenuBarController::set_recording(true);
 
                     if let Ok(mut audio) = audio_processor.lock() {
@@ -145,6 +146,7 @@ impl AppController {
                     window_manager.hide()?;
 
                     // Update menu bar icon
+                    #[cfg(target_os = "macos")]
                     menubar_ffi::MenuBarController::set_recording(false);
 
                     // Stop recording and get final text
@@ -203,3 +205,62 @@ impl AppController {
     }
 }
 
+// Lightweight streaming manager inlined here to avoid an extra file.
+#[derive(Clone)]
+struct StreamingManager {
+    typing_queue: TypingQueue,
+    typed_text: Arc<parking_lot::RwLock<String>>,
+    pending_text: Arc<parking_lot::RwLock<String>>,
+}
+
+impl StreamingManager {
+    fn new(typing_queue: TypingQueue) -> Self {
+        Self {
+            typing_queue,
+            typed_text: Arc::new(parking_lot::RwLock::new(String::new())),
+            pending_text: Arc::new(parking_lot::RwLock::new(String::new())),
+        }
+    }
+
+    fn process_live_text(&self, new_full_text: &str) {
+        let typed = self.typed_text.read();
+        if new_full_text.len() > typed.len() {
+            if new_full_text.starts_with(typed.as_str()) {
+                let new_part = &new_full_text[typed.len()..];
+                if !new_part.is_empty() {
+                    println!("⌨️ Live typing: '{}'", new_part);
+                    if self
+                        .typing_queue
+                        .queue_typing(new_part.to_string(), false)
+                        .is_ok()
+                    {
+                        drop(typed);
+                        let mut typed_mut = self.typed_text.write();
+                        *typed_mut = new_full_text.to_string();
+                    }
+                }
+            } else {
+                // Non-prefix change (model correction). Record pending.
+                let mut pending = self.pending_text.write();
+                *pending = new_full_text.to_string();
+            }
+        }
+    }
+
+    fn reset(&self) {
+        let mut typed = self.typed_text.write();
+        typed.clear();
+        let mut pending = self.pending_text.write();
+        pending.clear();
+    }
+
+    #[allow(dead_code)]
+    fn get_pending_corrections(&self) -> Option<String> {
+        let pending = self.pending_text.read();
+        if !pending.is_empty() {
+            Some(pending.clone())
+        } else {
+            None
+        }
+    }
+}

@@ -10,7 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 #[cfg(target_os = "macos")]
-use crate::keyboard_ffi::{init_keyboard_monitor, shutdown_keyboard_monitor, register_push_to_talk_callback};
+use crate::platform::macos::ffi::{init_keyboard_monitor, shutdown_keyboard_monitor, register_push_to_talk_callback};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HotkeyEvent {

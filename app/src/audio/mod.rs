@@ -1,7 +1,1 @@
-pub mod capture;
-pub mod processor;
-pub mod transcriber;
-
-pub use capture::AudioCapture;
-pub use processor::ImprovedAudioProcessor;
-pub use transcriber::Transcriber;
+// Consolidated in services::audio. This module is kept for backward compatibility if needed.
