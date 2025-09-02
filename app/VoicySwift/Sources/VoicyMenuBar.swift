@@ -67,7 +67,7 @@ import ServiceManagement
         menu?.addItem(NSMenuItem.separator())
         
         // Settings
-        let settingsItem = NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "Preferences", action: #selector(openPreferences), keyEquivalent: "")
         settingsItem.target = self
         menu?.addItem(settingsItem)
         

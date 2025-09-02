@@ -22,6 +22,9 @@ struct VoicyView {
 struct PreferencesView {
     config: std::sync::Arc<parking_lot::RwLock<voicy::config::Config>>,
     open_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    handle_holder: std::sync::Arc<std::sync::Mutex<Option<gpui::WindowHandle<PreferencesView>>>>,
+    hotkeys: std::sync::Arc<std::sync::Mutex<voicy::input::HotkeyHandler>>,
+    rev: u64,
 }
 
 impl Drop for PreferencesView {
@@ -84,6 +87,8 @@ impl Render for PreferencesView {
         let typing_enabled = cfg.output.enable_typing;
         let add_space = cfg.output.add_space_between_utterances;
         let streaming_enabled = cfg.streaming.enabled;
+        let ptt = cfg.hotkeys.push_to_talk.clone();
+        let toggle = cfg.hotkeys.toggle_window.clone();
         drop(cfg);
 
         let toggle_typing = {
@@ -117,96 +122,221 @@ impl Render for PreferencesView {
             }
         };
 
-        let cfg_for_reopen = self.config.clone();
-        let flag_for_reopen = self.open_flag.clone();
+        let handle_holder = self.handle_holder.clone();
 
-        let typing_row = div()
-            .w_full()
-            .p(px(6.0))
-            .border_b_1()
+        let typing_row = {
+            let config = self.config.clone();
+            let handle_holder = self.handle_holder.clone();
+            div()
+                .w_full()
+                .p(px(6.0))
+                .border_b_1()
+                .border_color(rgb(0x374151))
+                .cursor_pointer()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .size(px(16.0))
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(rgb(0x9ca3af))
+                        .bg(if typing_enabled { rgb(0x2563eb) } else { rgb(0x111827) })
+                        .child(if typing_enabled { "✓" } else { "" }),
+                )
+                .child("Enable typing")
+                .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
+                    // Update in-memory config
+                    let mut cfg = config.write();
+                    cfg.output.enable_typing = !cfg.output.enable_typing;
+                    let to_save = cfg.clone();
+                    drop(cfg);
+                    // Save async
+                    if let Some(path) = voicy::config::Config::config_path() {
+                        std::thread::spawn(move || { let _ = to_save.save(path); });
+                    }
+                    // Re-render
+                    if let Some(handle) = handle_holder.lock().unwrap().clone() {
+                        let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
+                    }
+                })
+        };
+
+        let handle_holder2 = self.handle_holder.clone();
+
+        let add_space_row = {
+            let config = self.config.clone();
+            let handle_holder2 = self.handle_holder.clone();
+            div()
+                .w_full()
+                .p(px(6.0))
+                .border_b_1()
+                .border_color(rgb(0x374151))
+                .cursor_pointer()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .size(px(16.0))
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(rgb(0x9ca3af))
+                        .bg(if add_space { rgb(0x2563eb) } else { rgb(0x111827) })
+                        .child(if add_space { "✓" } else { "" }),
+                )
+                .child("Add space between utterances")
+                .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
+                    let mut cfg = config.write();
+                    cfg.output.add_space_between_utterances = !cfg.output.add_space_between_utterances;
+                    let to_save = cfg.clone();
+                    drop(cfg);
+                    if let Some(path) = voicy::config::Config::config_path() {
+                        std::thread::spawn(move || { let _ = to_save.save(path); });
+                    }
+                    if let Some(handle) = handle_holder2.lock().unwrap().clone() {
+                        let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
+                    }
+                })
+        };
+
+        let handle_holder3 = self.handle_holder.clone();
+
+        let streaming_row = {
+            let config = self.config.clone();
+            let handle_holder3 = self.handle_holder.clone();
+            div()
+                .w_full()
+                .p(px(6.0))
+                .border_b_1()
+                .border_color(rgb(0x374151))
+                .cursor_pointer()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .size(px(16.0))
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(rgb(0x9ca3af))
+                        .bg(if streaming_enabled { rgb(0x2563eb) } else { rgb(0x111827) })
+                        .child(if streaming_enabled { "✓" } else { "" }),
+                )
+                .child("Enable streaming")
+                .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
+                    let mut cfg = config.write();
+                    cfg.streaming.enabled = !cfg.streaming.enabled;
+                    let to_save = cfg.clone();
+                    drop(cfg);
+                    if let Some(path) = voicy::config::Config::config_path() {
+                        std::thread::spawn(move || { let _ = to_save.save(path); });
+                    }
+                    if let Some(handle) = handle_holder3.lock().unwrap().clone() {
+                        let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
+                    }
+                })
+        };
+
+        // Hotkey helpers (reopen window after saving)
+        let handle_holder4 = self.handle_holder.clone();
+        let cfg_arc4 = self.config.clone();
+        let hk4 = self.hotkeys.clone();
+        let set_ptt_fn = div()
+            .px(px(6.0))
+            .py(px(4.0))
+            .rounded_sm()
+            .border_1()
             .border_color(rgb(0x374151))
-            .child(format!("Typing: {}", if typing_enabled { "On" } else { "Off" }))
-            .on_mouse_down(gpui::MouseButton::Left, move |_, window, app_cx| {
-                toggle_typing();
-                // Force re-render by recreating the window
-                window.remove_window();
-                let cfg = cfg_for_reopen.clone();
-                let f = flag_for_reopen.clone();
-                let bounds = Bounds::centered(None, size(px(360.0), px(220.0)), app_cx);
-                app_cx
-                    .open_window(
-                        WindowOptions {
-                            window_bounds: Some(WindowBounds::Windowed(bounds)),
-                            ..Default::default()
-                        },
-                        move |_, cx| {
-                            let open_flag = f.clone();
-                            cx.new(|_| PreferencesView { config: cfg.clone(), open_flag })
-                        },
-                    )
-                    .unwrap();
+            .cursor_pointer()
+            .child("Set Fn")
+            .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
+                let mut cfg = cfg_arc4.write();
+                cfg.hotkeys.push_to_talk = "fn".to_string();
+                if let Some(path) = voicy::config::Config::config_path() { let _ = cfg.save(path); }
+                // Apply hotkeys immediately
+                if let Ok(mut hk) = hk4.lock() {
+                    let _ = hk.register_hotkeys(&cfg.hotkeys);
+                }
+                if let Some(handle) = handle_holder4.lock().unwrap().clone() {
+                    let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
+                }
             });
 
-        let cfg_for_reopen2 = self.config.clone();
-        let flag_for_reopen2 = self.open_flag.clone();
-
-        let add_space_row = div()
-            .w_full()
-            .p(px(6.0))
-            .border_b_1()
-            .border_color(rgb(0x374151))
-            .child(format!(
-                "Add space between utterances: {}",
-                if add_space { "On" } else { "Off" }
-            ))
-            .on_mouse_down(gpui::MouseButton::Left, move |_, window, app_cx| {
-                toggle_add_space();
-                window.remove_window();
-                let cfg = cfg_for_reopen2.clone();
-                let f = flag_for_reopen2.clone();
-                let bounds = Bounds::centered(None, size(px(360.0), px(220.0)), app_cx);
-                app_cx
-                    .open_window(
-                        WindowOptions {
-                            window_bounds: Some(WindowBounds::Windowed(bounds)),
-                            ..Default::default()
-                        },
-                        move |_, cx| {
-                            let open_flag = f.clone();
-                            cx.new(|_| PreferencesView { config: cfg.clone(), open_flag })
-                        },
-                    )
-                    .unwrap();
+        let handle_holder5 = self.handle_holder.clone();
+        let cfg_arc5 = self.config.clone();
+        let hk5 = self.hotkeys.clone();
+        let set_ptt_cmd_space = div()
+            .px(px(6.0)).py(px(4.0)).rounded_sm().border_1().border_color(rgb(0x374151)).cursor_pointer()
+            .child("Set Cmd+Space")
+            .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
+                let mut cfg = cfg_arc5.write();
+                cfg.hotkeys.push_to_talk = "cmd+space".to_string();
+                if let Some(path) = voicy::config::Config::config_path() { let _ = cfg.save(path); }
+                if let Ok(mut hk) = hk5.lock() {
+                    let _ = hk.register_hotkeys(&cfg.hotkeys);
+                }
+                if let Some(handle) = handle_holder5.lock().unwrap().clone() {
+                    let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
+                }
             });
 
-        let cfg_for_reopen3 = self.config.clone();
-        let flag_for_reopen3 = self.open_flag.clone();
-
-        let streaming_row = div()
-            .w_full()
-            .p(px(6.0))
-            .border_b_1()
-            .border_color(rgb(0x374151))
-            .child(format!("Streaming: {}", if streaming_enabled { "On" } else { "Off" }))
-            .on_mouse_down(gpui::MouseButton::Left, move |_, window, app_cx| {
-                toggle_streaming();
-                window.remove_window();
-                let cfg = cfg_for_reopen3.clone();
-                let f = flag_for_reopen3.clone();
-                let bounds = Bounds::centered(None, size(px(360.0), px(220.0)), app_cx);
-                app_cx
-                    .open_window(
-                        WindowOptions {
-                            window_bounds: Some(WindowBounds::Windowed(bounds)),
-                            ..Default::default()
-                        },
-                        move |_, cx| {
-                            let open_flag = f.clone();
-                            cx.new(|_| PreferencesView { config: cfg.clone(), open_flag })
-                        },
-                    )
-                    .unwrap();
+        let handle_holder6 = self.handle_holder.clone();
+        let cfg_arc6 = self.config.clone();
+        let hk6 = self.hotkeys.clone();
+        let set_ptt_opt_space = div()
+            .px(px(6.0)).py(px(4.0)).rounded_sm().border_1().border_color(rgb(0x374151)).cursor_pointer()
+            .child("Set Opt+Space")
+            .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
+                let mut cfg = cfg_arc6.write();
+                cfg.hotkeys.push_to_talk = "opt+space".to_string();
+                if let Some(path) = voicy::config::Config::config_path() { let _ = cfg.save(path); }
+                if let Ok(mut hk) = hk6.lock() {
+                    let _ = hk.register_hotkeys(&cfg.hotkeys);
+                }
+                if let Some(handle) = handle_holder6.lock().unwrap().clone() {
+                    let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
+                }
             });
+
+        // Toggle window preset
+        let handle_holder7 = self.handle_holder.clone();
+        let cfg_arc7 = self.config.clone();
+        let hk7 = self.hotkeys.clone();
+        let set_toggle_cmd_shift_bslash = div()
+            .px(px(6.0)).py(px(4.0)).rounded_sm().border_1().border_color(rgb(0x374151)).cursor_pointer()
+            .child("Toggle: Cmd+Shift+\\")
+            .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
+                let mut cfg = cfg_arc7.write();
+                cfg.hotkeys.toggle_window = Some("cmd+shift+\\".to_string());
+                if let Some(path) = voicy::config::Config::config_path() { let _ = cfg.save(path); }
+                if let Ok(mut hk) = hk7.lock() {
+                    let _ = hk.register_hotkeys(&cfg.hotkeys);
+                }
+                if let Some(handle) = handle_holder7.lock().unwrap().clone() {
+                    let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
+                }
+            });
+
+        let handle_holder8 = self.handle_holder.clone();
+        let cfg_arc8 = self.config.clone();
+        let hk8 = self.hotkeys.clone();
+        let clear_toggle = div()
+            .px(px(6.0)).py(px(4.0)).rounded_sm().border_1().border_color(rgb(0x374151)).cursor_pointer()
+            .child("Clear Toggle")
+            .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
+                let mut cfg = cfg_arc8.write();
+                cfg.hotkeys.toggle_window = None;
+                if let Some(path) = voicy::config::Config::config_path() { let _ = cfg.save(path); }
+                if let Ok(mut hk) = hk8.lock() {
+                    let _ = hk.register_hotkeys(&cfg.hotkeys);
+                }
+                if let Some(handle) = handle_holder8.lock().unwrap().clone() {
+                    let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
+                }
+            });
+
 
         div()
             .id("voicy-prefs-window")
@@ -222,10 +352,30 @@ impl Render for PreferencesView {
             .text_xs()
             .gap(px(6.0))
             .text_color(rgb(0xffffff))
-            .child(div().text_sm().child("Voicy Preferences"))
+            .child(
+                div()
+                    .w_full()
+                    .flex()
+                    .justify_end()
+                    .child(div().text_sm().child("Voicy Preferences"))
+            )
             .child(typing_row)
             .child(add_space_row)
             .child(streaming_row)
+            .child(div().mt(px(8.0)).child(format!("Push-to-talk: {}", ptt)))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(6.0))
+                    .child(set_ptt_fn)
+                    .child(set_ptt_cmd_space)
+                    .child(set_ptt_opt_space),
+            )
+            .child(div().mt(px(8.0)).child(format!(
+                "Toggle window: {}",
+                toggle.clone().unwrap_or_else(|| "None".into())
+            )))
+            .child(div().flex().gap(px(6.0)).child(set_toggle_cmd_shift_bslash).child(clear_toggle))
             .child(div().mt(px(6.0)).child(
                 "Tip: Click a row to toggle. Close this window when done.",
             ))
@@ -381,58 +531,7 @@ fn main() {
         }
         println!("✅ Hotkeys forwarding independently of UI");
 
-        // Live config watcher: reload on save, re-register hotkeys and update controller config
-        let config_handle = controller.config_handle();
-        let hotkey_handler_for_watcher = hotkey_handler.clone();
-        std::thread::spawn(move || {
-            use std::time::{Duration, SystemTime};
-            use std::fs;
-            use voicy::config::Config as Cfg;
-
-            let path = Cfg::config_path();
-            let mut last_mtime: Option<SystemTime> = None;
-            let mut last_contents: Option<String> = None;
-
-            loop {
-                if let Some(ref p) = path {
-                    if let Ok(meta) = fs::metadata(p) {
-                        let mtime = meta.modified().ok();
-                        let contents = fs::read_to_string(p).ok();
-                        let changed = match (&mtime, &last_mtime, &contents, &last_contents) {
-                            (Some(mt), Some(prev), _, _) if mt > prev => true,
-                            (_, _, Some(c), Some(prev_c)) if c != prev_c => true,
-                            (Some(_), None, _, _) => true,
-                            (_, _, Some(_), None) => true,
-                            _ => false,
-                        };
-
-                        if changed {
-                            if let Some(ref s) = contents {
-                                match toml::from_str::<Cfg>(s) {
-                                    Ok(new_cfg) => {
-                                        // Update controller-config
-                                        *config_handle.write() = new_cfg.clone();
-                                        println!("✅ Applied new config");
-                                        // Re-register hotkeys
-                                        if let Ok(mut hk) = hotkey_handler_for_watcher.lock() {
-                                            if let Err(e) = hk.register_hotkeys(&new_cfg.hotkeys) {
-                                                eprintln!("❌ Failed to re-register hotkeys: {}", e);
-                                            } else {
-                                                println!("🔄 Hotkeys re-registered");
-                                            }
-                                        }
-                                    }
-                                    Err(e) => eprintln!("⚠️ Failed to parse config: {}", e),
-                                }
-                            }
-                            last_mtime = mtime;
-                            last_contents = contents;
-                        }
-                    }
-                }
-                std::thread::sleep(Duration::from_millis(500));
-            }
-        });
+        // Removed file watcher: config changes now apply immediately where edited (Preferences window and hotkey presets).
 
         // Run controller in background, consuming forwarded events
         controller.start(event_rx);
@@ -441,6 +540,7 @@ fn main() {
         let prefs_config = prefs_config_handle.clone();
         let prefs_open = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let prefs_open_for_view = prefs_open.clone();
+        let hotkey_handler_for_prefs_outer = hotkey_handler.clone();
         cx.spawn(async move |cx| {
             use std::time::Duration;
             loop {
@@ -450,23 +550,31 @@ fn main() {
                             prefs_open.store(true, std::sync::atomic::Ordering::SeqCst);
                             let prefs_config = prefs_config.clone();
                             let prefs_open_for_view = prefs_open_for_view.clone();
-                            cx.update(|cx| {
+                            let hk_for_update = hotkey_handler_for_prefs_outer.clone();
+                            let _ = cx.update(|cx| {
                                 let bounds = Bounds::centered(
                                     None,
-                                    size(px(360.0), px(220.0)),
+                                    size(px(320.0), px(220.0)),
                                     cx,
                                 );
-                                cx.open_window(
+                                let handle_holder_outer: std::sync::Arc<std::sync::Mutex<Option<gpui::WindowHandle<PreferencesView>>>> =
+                                    std::sync::Arc::new(std::sync::Mutex::new(None));
+                                let holder_for_create = handle_holder_outer.clone();
+                                let handle = cx.open_window(
                                     WindowOptions {
                                         window_bounds: Some(WindowBounds::Windowed(bounds)),
+                                        titlebar: Some(gpui::TitlebarOptions { appears_transparent: true, ..Default::default() }),
                                         ..Default::default()
                                     },
                                     move |_, cx| {
                                         let open_flag = prefs_open_for_view.clone();
-                                        cx.new(|_| PreferencesView { config: prefs_config.clone(), open_flag })
+                                        let holder = holder_for_create.clone();
+                                        let hk = hk_for_update.clone();
+                                        cx.new(|_| PreferencesView { config: prefs_config.clone(), open_flag, handle_holder: holder, hotkeys: hk, rev: 0 })
                                     },
                                 )
                                 .unwrap();
+                                *handle_holder_outer.lock().unwrap() = Some(handle.clone());
                             });
                         }
                     }

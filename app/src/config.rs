@@ -45,11 +45,11 @@ pub struct OutputConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HotkeyConfig {
-    pub toggle_window: Option<String>, // Optional separate toggle
-    pub push_to_talk: String,          // Main push-to-talk hotkey
-    pub preferences: Option<String>,   // Open preferences/settings
-}
+    pub struct HotkeyConfig {
+        pub toggle_window: Option<String>, // Optional separate toggle
+        pub push_to_talk: String,          // Main push-to-talk hotkey
+        pub preferences: Option<String>,   // Open preferences/settings
+    }
 
 impl Default for Config {
     fn default() -> Self {
@@ -80,7 +80,7 @@ impl Default for Config {
                 toggle_window: None, // Disabled by default
                 push_to_talk: "fn".to_string(), // Use fn key on macOS (requires accessibility permissions)
                                                 // Alternative: "cmd+space" or "opt+space"
-                preferences: Some("cmd+,".to_string()),
+                preferences: None,
             },
         }
     }
