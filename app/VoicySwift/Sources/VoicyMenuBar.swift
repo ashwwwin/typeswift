@@ -7,8 +7,7 @@ import ServiceManagement
     
     private var statusItem: NSStatusItem?
     private var menu: NSMenu?
-    private var isRecording = false
-    private var recordingMenuItem: NSMenuItem?
+    
     
     @objc public static let shared = VoicyMenuBar()
     
@@ -41,28 +40,6 @@ import ServiceManagement
         let titleItem = NSMenuItem(title: "Voicy - Speech Recognition", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
         menu?.addItem(titleItem)
-        
-        menu?.addItem(NSMenuItem.separator())
-        
-        // Recording toggle
-        recordingMenuItem = NSMenuItem(title: "Start Recording", action: #selector(toggleRecording), keyEquivalent: "r")
-        recordingMenuItem?.target = self
-        menu?.addItem(recordingMenuItem!)
-        
-        // Transcription mode
-        let modeMenu = NSMenu()
-        let modeItem = NSMenuItem(title: "Transcription Mode", action: nil, keyEquivalent: "")
-        modeItem.submenu = modeMenu
-        
-        let continuousMode = NSMenuItem(title: "Continuous", action: #selector(setContinuousMode), keyEquivalent: "")
-        continuousMode.target = self
-        modeMenu.addItem(continuousMode)
-        
-        let pushToTalkMode = NSMenuItem(title: "Push to Talk", action: #selector(setPushToTalkMode), keyEquivalent: "")
-        pushToTalkMode.target = self
-        modeMenu.addItem(pushToTalkMode)
-        
-        menu?.addItem(modeItem)
         
         menu?.addItem(NSMenuItem.separator())
         
@@ -100,45 +77,7 @@ import ServiceManagement
         statusItem?.menu = menu
     }
     
-    /// Toggle recording state
-    @objc private func toggleRecording() {
-        isRecording.toggle()
-        
-        if isRecording {
-            recordingMenuItem?.title = "Stop Recording"
-            
-            // Change icon to indicate recording
-            if let button = statusItem?.button {
-                button.image = NSImage(systemSymbolName: "mic.circle.fill", accessibilityDescription: "Recording")
-                button.image?.isTemplate = true
-            }
-            
-            // Notify Rust side to start recording
-            NotificationCenter.default.post(name: NSNotification.Name("VoicyStartRecording"), object: nil)
-            
-        } else {
-            recordingMenuItem?.title = "Start Recording"
-            
-            // Change icon back to normal
-            if let button = statusItem?.button {
-                button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Voicy")
-                button.image?.isTemplate = true
-            }
-            
-            // Notify Rust side to stop recording
-            NotificationCenter.default.post(name: NSNotification.Name("VoicyStopRecording"), object: nil)
-        }
-    }
     
-    @objc private func setContinuousMode() {
-        UserDefaults.standard.set("continuous", forKey: "transcriptionMode")
-        NotificationCenter.default.post(name: NSNotification.Name("VoicyModeChanged"), object: "continuous")
-    }
-    
-    @objc private func setPushToTalkMode() {
-        UserDefaults.standard.set("pushToTalk", forKey: "transcriptionMode")
-        NotificationCenter.default.post(name: NSNotification.Name("VoicyModeChanged"), object: "pushToTalk")
-    }
     
     @objc private func openPreferences() {
         // Notify Rust via registered preferences callback
@@ -162,7 +101,6 @@ import ServiceManagement
     }
     
     @objc private func toggleLaunchAtStartup() {
-        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.voicy.app"
         
         if isLaunchAtStartupEnabled() {
             // Disable launch at startup
@@ -453,7 +391,7 @@ import ServiceManagement
             guard let menu = self?.menu else { return }
             
             // Keep only default items
-            while menu.items.count > 10 { // Adjust based on your default items count
+            while menu.items.count > 9 { // Adjust based on your default items count
                 menu.removeItem(at: menu.items.count - 3)
             }
         }

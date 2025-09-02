@@ -125,6 +125,24 @@ impl WindowManager {
     pub fn get_state(&self) -> WindowState {
         *self.state.read()
     }
+
+    pub fn focus_preferences() -> VoicyResult<()> {
+        #[cfg(target_os = "macos")]
+        {
+            Queue::main().exec_async(move || {
+                if let Err(e) = focus_preferences_window_macos() {
+                    eprintln!("❌ Failed to focus preferences window: {}", e);
+                }
+            });
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            // No-op on non-macOS
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -210,5 +228,41 @@ fn hide_window_macos() -> VoicyResult<()> {
         }
     }
     
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn focus_preferences_window_macos() -> VoicyResult<()> {
+    unsafe {
+        let app: id = NSApp();
+        if app.is_null() { return Ok(()); }
+
+        let windows: id = msg_send![app, windows];
+        if windows.is_null() { return Ok(()); }
+
+        let count: usize = msg_send![windows, count];
+        if count == 0 { return Ok(()); }
+
+        // NSWindowStyleMaskTitled == 1 << 0
+        const NS_WINDOW_STYLE_MASK_TITLED: i64 = 1;
+
+        for i in 0..count {
+            let window: id = msg_send![windows, objectAtIndex:i];
+            let style_mask: i64 = msg_send![window, styleMask];
+            let has_title = (style_mask & NS_WINDOW_STYLE_MASK_TITLED) != 0;
+            // Skip floating pop-up/status windows (recording state window)
+            let level: i64 = msg_send![window, level];
+            const NS_FLOATING_WINDOW_LEVEL: i64 = 3;
+            let is_floating = level == NS_FLOATING_WINDOW_LEVEL;
+            if has_title && !is_floating {
+                // Bring to front and make key
+                let _: () = msg_send![window, makeKeyAndOrderFront:nil];
+                // Activate the app to ensure visibility
+                let _: () = msg_send![app, activateIgnoringOtherApps:true];
+                break;
+            }
+        }
+    }
+
     Ok(())
 }

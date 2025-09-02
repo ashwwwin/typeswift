@@ -564,6 +564,7 @@ fn main() {
                                     WindowOptions {
                                         window_bounds: Some(WindowBounds::Windowed(bounds)),
                                         titlebar: Some(gpui::TitlebarOptions { appears_transparent: true, ..Default::default() }),
+                                        focus: true,
                                         ..Default::default()
                                     },
                                     move |_, cx| {
@@ -575,7 +576,16 @@ fn main() {
                                 )
                                 .unwrap();
                                 *handle_holder_outer.lock().unwrap() = Some(handle.clone());
+                                // Ensure the Preferences window is brought to front on first open
+                                if let Err(e) = voicy::window::WindowManager::focus_preferences() {
+                                    eprintln!("⚠️ Could not focus preferences window: {}", e);
+                                }
                             });
+                        } else {
+                            // Already open: bring the Preferences window to front
+                            if let Err(e) = voicy::window::WindowManager::focus_preferences() {
+                                eprintln!("⚠️ Could not focus preferences window: {}", e);
+                            }
                         }
                     }
                 }
