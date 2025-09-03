@@ -63,6 +63,10 @@ impl WindowManager {
                     eprintln!("❌ Failed to show window: {}", e);
                     return;
                 }
+                // Explicitly deactivate so we never steal focus
+                if let Err(e) = deactivate_app_macos() {
+                    eprintln!("⚠️ Failed to deactivate app after show: {}", e);
+                }
                 *state.write() = WindowState::Visible;
                 println!("✅ Window shown (no focus steal)");
             });
@@ -100,6 +104,45 @@ impl WindowManager {
             println!("✅ Window hidden (simulated)");
         }
         
+        Ok(())
+    }
+
+    // Hide window and deactivate the app, blocking until done on the main thread
+    pub fn hide_and_deactivate_blocking(&self) -> VoicyResult<()> {
+        println!("🪟 Hiding window and deactivating app (blocking)");
+
+        #[cfg(target_os = "macos")]
+        {
+            use std::sync::mpsc;
+            use std::time::Duration;
+
+            let (tx, rx) = mpsc::channel::<()>();
+            let state = self.state.clone();
+
+            Queue::main().exec_async(move || {
+                if let Err(e) = hide_window_macos() {
+                    eprintln!("❌ Failed to hide window: {}", e);
+                    let _ = tx.send(());
+                    return;
+                }
+                // Deactivate the app so the previous app regains focus
+                if let Err(e) = deactivate_app_macos() {
+                    eprintln!("⚠️ Failed to deactivate app: {}", e);
+                }
+                *state.write() = WindowState::Hidden;
+                println!("✅ Window hidden and app deactivated");
+                let _ = tx.send(());
+            });
+
+            // Wait briefly for the hide/deactivate to complete
+            let _ = rx.recv_timeout(Duration::from_millis(250));
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            *self.state.write() = WindowState::Hidden;
+        }
+
         Ok(())
     }
     
@@ -228,6 +271,18 @@ fn hide_window_macos() -> VoicyResult<()> {
         }
     }
     
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn deactivate_app_macos() -> VoicyResult<()> {
+    unsafe {
+        let app: id = NSApp();
+        if app.is_null() {
+            return Ok(());
+        }
+        let _: () = msg_send![app, deactivate];
+    }
     Ok(())
 }
 

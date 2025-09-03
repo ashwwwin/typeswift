@@ -86,7 +86,6 @@ impl Render for PreferencesView {
         let cfg = self.config.read();
         let typing_enabled = cfg.output.enable_typing;
         let add_space = cfg.output.add_space_between_utterances;
-        let streaming_enabled = cfg.streaming.enabled;
         let ptt = cfg.hotkeys.push_to_talk.clone();
         drop(cfg);
 
@@ -97,7 +96,10 @@ impl Render for PreferencesView {
             let handle_holder = self.handle_holder.clone();
             div()
                 .w_full()
-                .p(px(6.0))
+                .mt(px(6.0))
+                // Horizontal + small vertical padding for the row
+                .px(px(6.0))
+                .py(px(4.0))
                 .border_b_1()
                 .border_color(rgb(0x374151))
                 
@@ -105,11 +107,12 @@ impl Render for PreferencesView {
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(div().child("Enable typing"))
+                .child(div().py(px(3.0)).child("Enable typing"))
                 .child(
                     div()
                         .px(px(6.0))
-                        .py(px(2.0))
+                        .pt(px(3.0))
+                        .pb(px(1.5))
                         .rounded_sm()
                         .bg(if typing_enabled { rgb(0x065f46) } else { rgb(0x7f1d1d) })
                         .child(if typing_enabled { "On" } else { "Off" })
@@ -138,7 +141,9 @@ impl Render for PreferencesView {
             let handle_holder2 = self.handle_holder.clone();
             div()
                 .w_full()
-                .p(px(6.0))
+                // Horizontal + small vertical padding for the row
+                .px(px(6.0))
+                .py(px(4.0))
                 .border_b_1()
                 .border_color(rgb(0x374151))
                 
@@ -146,11 +151,12 @@ impl Render for PreferencesView {
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(div().child("Add space between utterances"))
+                .child(div().py(px(3.0)).child("Add space between utterances"))
                 .child(
                     div()
                         .px(px(6.0))
-                        .py(px(2.0))
+                        .pt(px(3.0))
+                        .pb(px(1.5))
                         .rounded_sm()
                         .bg(if add_space { rgb(0x065f46) } else { rgb(0x7f1d1d) })
                         .child(if add_space { "On" } else { "Off" })
@@ -171,41 +177,6 @@ impl Render for PreferencesView {
 
         
 
-        let streaming_row = {
-            let config = self.config.clone();
-            let handle_holder3 = self.handle_holder.clone();
-            div()
-                .w_full()
-                .p(px(6.0))
-                .border_b_1()
-                .border_color(rgb(0x374151))
-                
-                .hover(|s| s.bg(rgb(0x1f2937)))
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(div().child("Enable streaming"))
-                .child(
-                    div()
-                        .px(px(6.0))
-                        .py(px(2.0))
-                        .rounded_sm()
-                        .bg(if streaming_enabled { rgb(0x065f46) } else { rgb(0x7f1d1d) })
-                        .child(if streaming_enabled { "On" } else { "Off" })
-                )
-                .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
-                    let mut cfg = config.write();
-                    cfg.streaming.enabled = !cfg.streaming.enabled;
-                    let to_save = cfg.clone();
-                    drop(cfg);
-                    if let Some(path) = voicy::config::Config::config_path() {
-                        std::thread::spawn(move || { let _ = to_save.save(path); });
-                    }
-                    if let Some(handle) = handle_holder3.lock().unwrap().clone() {
-                        let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
-                    }
-                })
-        };
 
         // Hotkey helpers (reopen window after saving)
         let handle_holder4 = self.handle_holder.clone();
@@ -262,23 +233,26 @@ impl Render for PreferencesView {
             .bg(rgb(0x111827))
             .w_full()
             .h_full()
-            .p(px(8.0))
+            .px(px(8.0))
             .rounded_md()
             .border_1()
             .border_color(rgb(0x374151))
             .text_xs()
-            .gap(px(6.0))
+            // Remove inter-row gap to make rows sit flush
+            // .gap(px(6.0))
             .text_color(rgb(0xffffff))
             .child(
                 div()
                     .w_full()
                     .flex()
+                    .pt(px(5.0))
                     .justify_end()
-                    .child(div().text_xs().child("Preferences"))
+                    .text_color(rgb(0x596678))
+                    .child(div().text_xs().child("Typeswift"))
             )
             .child(typing_row)
             .child(add_space_row)
-            .child(streaming_row)
+            // Streaming removed
             .child(div().mt(px(8.0)).child(format!("Push-to-talk: {}", ptt)))
             .child(
                 div()

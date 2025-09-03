@@ -5,7 +5,6 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub audio: AudioConfig,
-    pub streaming: StreamingConfig,
     pub model: ModelConfig,
     pub ui: UiConfig,
     pub output: OutputConfig,
@@ -15,13 +14,6 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioConfig {
     pub target_sample_rate: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StreamingConfig {
-    pub enabled: bool,             // Enable continuous streaming mode
-    pub process_interval_ms: u32,  // Process every N milliseconds
-    pub min_initial_audio_ms: u32, // Wait for N ms before first inference
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,11 +48,6 @@ impl Default for Config {
         Self {
             audio: AudioConfig {
                 target_sample_rate: 16000,
-            },
-            streaming: StreamingConfig {
-                enabled: false,            // true = type while speaking, false = type after release
-                process_interval_ms: 250,  // Optimized for lower latency
-                min_initial_audio_ms: 300, // Reduced for faster response
             },
             model: ModelConfig {
                 model_name: "mlx-community/parakeet-tdt-0.6b-v3".to_string(),

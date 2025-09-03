@@ -3,9 +3,7 @@ use crate::error::{VoicyError, VoicyResult};
 use parking_lot::RwLock;
 use ringbuf::{traits::*, HeapCons, HeapRb};
 use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
-use std::sync::{mpsc, Arc};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
 
 // ===== Audio capture (cpal) =====
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -224,18 +222,17 @@ impl AudioReader {
 
 // ===== Swift transcriber wrapper =====
 use crate::platform::macos::ffi::SharedSwiftTranscriber;
-use crate::config::{ModelConfig, StreamingConfig};
+use crate::config::ModelConfig;
 
 pub struct Transcriber {
     swift_transcriber: SharedSwiftTranscriber,
     sample_rate: u32,
     model_config: ModelConfig,
-    streaming_config: StreamingConfig,
     audio_buffer: Arc<parking_lot::Mutex<Vec<f32>>>,
 }
 
 impl Transcriber {
-    pub fn new(model_config: ModelConfig, streaming_config: StreamingConfig) -> VoicyResult<Self> {
+    pub fn new(model_config: ModelConfig) -> VoicyResult<Self> {
         let swift_transcriber = SharedSwiftTranscriber::new();
 
         // Initialize with model path if provided
@@ -257,7 +254,6 @@ impl Transcriber {
             swift_transcriber,
             sample_rate,
             model_config,
-            streaming_config,
             audio_buffer: Arc::new(parking_lot::Mutex::new(Vec::with_capacity(
                 sample_rate as usize * 30,
             ))),
@@ -323,7 +319,6 @@ impl Clone for Transcriber {
             swift_transcriber: self.swift_transcriber.clone(),
             sample_rate: self.sample_rate,
             model_config: self.model_config.clone(),
-            streaming_config: self.streaming_config.clone(),
             audio_buffer: Arc::clone(&self.audio_buffer),
         }
     }
@@ -334,9 +329,6 @@ pub struct AudioProcessor {
     config: Config,
     audio_capture: Option<AudioCapture>,
     transcriber: Option<Transcriber>,
-    processing_handle: Option<thread::JoinHandle<()>>,
-    stop_signal: Option<mpsc::Sender<()>>,
-    result_receiver: Option<mpsc::Receiver<String>>,
     audio_buffer: Vec<f32>,
 }
 
@@ -344,19 +336,11 @@ impl AudioProcessor {
     pub fn new(config: Config) -> Self {
         // Pre-allocate buffer for 30 seconds of audio at 16kHz
         let buffer_capacity = 16000 * 30;
-        Self {
-            config,
-            audio_capture: None,
-            transcriber: None,
-            processing_handle: None,
-            stop_signal: None,
-            result_receiver: None,
-            audio_buffer: Vec::with_capacity(buffer_capacity),
-        }
+        Self { config, audio_capture: None, transcriber: None, audio_buffer: Vec::with_capacity(buffer_capacity) }
     }
 
     pub fn initialize(&mut self) -> VoicyResult<()> {
-        let transcriber = Transcriber::new(self.config.model.clone(), self.config.streaming.clone())?;
+        let transcriber = Transcriber::new(self.config.model.clone())?;
         let target_sample_rate = transcriber.get_sample_rate();
         let audio_capture = AudioCapture::new(target_sample_rate)?;
         self.transcriber = Some(transcriber);
@@ -373,125 +357,37 @@ impl AudioProcessor {
         if let Some(ref capture) = self.audio_capture {
             capture.start_recording()?;
         }
-        if self.config.streaming.enabled {
-            if let Some(ref transcriber) = self.transcriber {
-                transcriber.start_session()?;
-            }
-            self.start_optimized_processing_thread()?;
-        }
-        Ok(())
-    }
-
-    fn start_optimized_processing_thread(&mut self) -> VoicyResult<()> {
-        let (stop_tx, stop_rx) = mpsc::channel();
-        let (result_tx, result_rx) = mpsc::channel();
-
-        let capture = self.audio_capture.as_ref().unwrap().reader();
-        let transcriber = self.transcriber.as_ref().unwrap().clone();
-        let sample_rate = capture.get_sample_rate();
-
-        let process_interval = Duration::from_millis((self.config.streaming.process_interval_ms / 2) as u64);
-        let min_samples_for_processing = (self.config.streaming.min_initial_audio_ms * sample_rate / 1000) as usize;
-        let read_chunk_size = (sample_rate / 10) as usize; // 100ms
-
-        let handle = thread::spawn(move || {
-            let mut accumulated_audio = Vec::with_capacity(sample_rate as usize * 10);
-            let mut processing_buffer = Vec::with_capacity(sample_rate as usize * 10);
-            let mut last_process = Instant::now();
-            let mut total_samples_processed = 0usize;
-
-            loop {
-                match stop_rx.try_recv() {
-                    Ok(_) | Err(mpsc::TryRecvError::Disconnected) => break,
-                    Err(mpsc::TryRecvError::Empty) => {}
-                }
-
-                let audio = capture.read_audio(read_chunk_size);
-                if !audio.is_empty() {
-                    accumulated_audio.extend_from_slice(&audio);
-                }
-
-                let new_samples = accumulated_audio.len() - total_samples_processed;
-                let should_process = new_samples >= min_samples_for_processing && last_process.elapsed() >= process_interval;
-
-                if should_process && !accumulated_audio.is_empty() {
-                    processing_buffer.clear();
-                    processing_buffer.extend_from_slice(&accumulated_audio[total_samples_processed..]);
-                    match transcriber.process_audio(processing_buffer.clone()) {
-                        Ok(text) => {
-                            if !text.is_empty() {
-                                println!("💬 Live: '{}'", text);
-                                let _ = result_tx.send(text);
-                            }
-                        }
-                        Err(e) => eprintln!("❌ Transcription error: {}", e),
-                    }
-                    total_samples_processed = accumulated_audio.len();
-                    last_process = Instant::now();
-                }
-
-                thread::sleep(Duration::from_millis(10));
-            }
-        });
-
-        self.processing_handle = Some(handle);
-        self.stop_signal = Some(stop_tx);
-        self.result_receiver = Some(result_rx);
+        // Streaming removed: batch mode only
         Ok(())
     }
 
     pub fn stop_recording(&mut self) -> VoicyResult<String> {
-        if self.config.streaming.enabled {
-            if let Some(stop) = self.stop_signal.take() {
-                let _ = stop.send(());
-            }
-            if let Some(handle) = self.processing_handle.take() {
-                let _ = handle.join();
-            }
-            if let Some(ref capture) = self.audio_capture {
-                capture.stop_recording()?;
-            }
-            if let Some(ref transcriber) = self.transcriber {
-                let _ = transcriber.end_session()?;
-            }
-            if let Some(ref receiver) = self.result_receiver {
-                while receiver.try_recv().is_ok() {}
-            }
-            self.result_receiver = None;
-            Ok(String::new())
-        } else {
-            if let Some(ref capture) = self.audio_capture {
-                capture.stop_recording()?;
-                self.audio_buffer.clear();
-                loop {
-                    let chunk = capture.read_audio(8000);
-                    if chunk.is_empty() {
-                        break;
-                    }
-                    self.audio_buffer.extend_from_slice(&chunk);
+        if let Some(ref capture) = self.audio_capture {
+            capture.stop_recording()?;
+            self.audio_buffer.clear();
+            loop {
+                let chunk = capture.read_audio(8000);
+                if chunk.is_empty() {
+                    break;
                 }
-                if !self.audio_buffer.is_empty() {
-                    println!(
-                        "🎯 Processing {} samples ({}s @ 16kHz)",
-                        self.audio_buffer.len(),
-                        self.audio_buffer.len() / 16000
-                    );
-                    if let Some(ref transcriber) = self.transcriber {
-                        transcriber.start_session()?;
-                        let _ = transcriber.process_audio(self.audio_buffer.clone())?;
-                        let final_text = transcriber.end_session()?;
-                        return Ok(final_text.trim().to_string());
-                    }
+                self.audio_buffer.extend_from_slice(&chunk);
+            }
+            if !self.audio_buffer.is_empty() {
+                println!(
+                    "🎯 Processing {} samples ({}s @ 16kHz)",
+                    self.audio_buffer.len(),
+                    self.audio_buffer.len() / 16000
+                );
+                if let Some(ref transcriber) = self.transcriber {
+                    transcriber.start_session()?;
+                    let _ = transcriber.process_audio(self.audio_buffer.clone())?;
+                    let final_text = transcriber.end_session()?;
+                    return Ok(final_text.trim().to_string());
                 }
             }
-            Ok(String::new())
         }
-    }
-
-    pub fn get_live_transcription(&self) -> Option<String> {
-        self.result_receiver.as_ref()?.try_recv().ok()
+        Ok(String::new())
     }
 }
 
 pub type ImprovedAudioProcessor = AudioProcessor;
-
