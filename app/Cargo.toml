@@ -22,3 +22,12 @@ crossbeam-channel = "0.5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 once_cell = "1.19"
+
+[package.metadata.bundle]
+name = "Typeswift"
+identifier = "com.typeswift.app"
+icon = ["icons/Typeswift.icns"]
+category = "public.app-category.productivity"
+osx_minimum_system_version = "13.0"
+osx_info_plist = { LSUIElement = true, NSMicrophoneUsageDescription = "Typeswift needs microphone access to transcribe speech." }
+resources = ["menubar.png"]

@@ -22,14 +22,45 @@ import ServiceManagement
         // Create status item in system menu bar
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
-        // Set icon (you can use SF Symbols or custom image)
+        // Set icon: prefer menubar.png (app bundle or dev paths); fallback to SF Symbol
         if let button = statusItem?.button {
-            // Using SF Symbol for microphone
-            button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Typeswift")
-            button.image?.size = NSSize(width: 18, height: 18)
-            button.image?.isTemplate = true // Makes it adapt to dark/light mode
-            
-            // Alternative: Use text
+            // Try multiple locations so `cargo run` works without bundling
+            var found: NSImage? = nil
+            let fm = FileManager.default
+            // 1) App bundle Resources (when bundled)
+            if let url = Bundle.main.url(forResource: "menubar", withExtension: "png") {
+                found = NSImage(contentsOf: url)
+            }
+            // 2) Contents/Resources (some bundlers place resources here)
+            if found == nil, let resURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/menubar.png", isDirectory: false) as URL? {
+                if fm.fileExists(atPath: resURL.path) { found = NSImage(contentsOf: resURL) }
+            }
+            // 3) Executable directory (useful for `cargo run`)
+            if found == nil, let exeURL = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("menubar.png") {
+                if fm.fileExists(atPath: exeURL.path) { found = NSImage(contentsOf: exeURL) }
+            }
+            // 4) Current working directory (also useful for `cargo run`)
+            if found == nil {
+                let cwdURL = URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("menubar.png")
+                if fm.fileExists(atPath: cwdURL.path) { found = NSImage(contentsOf: cwdURL) }
+            }
+            // 5) Environment override: TYPESWIFT_ASSETS=/path/to/assets
+            if found == nil, let assetsRoot = ProcessInfo.processInfo.environment["TYPESWIFT_ASSETS"] {
+                let envURL = URL(fileURLWithPath: assetsRoot).appendingPathComponent("menubar.png")
+                if fm.fileExists(atPath: envURL.path) { found = NSImage(contentsOf: envURL) }
+            }
+
+            if let img = found {
+                img.size = NSSize(width: 18, height: 18)
+                button.image = img
+                button.imageScaling = .scaleProportionallyUpOrDown
+                button.image?.isTemplate = false
+            } else {
+                button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Typeswift")
+                button.image?.size = NSSize(width: 18, height: 18)
+                button.image?.isTemplate = true // Adapts to dark/light mode
+            }
+            // Alternative: Use text emoji
             // button.title = "🎙️"
         }
         
@@ -91,6 +122,12 @@ import ServiceManagement
         High-performance local speech recognition for macOS.
         """
         alert.alertStyle = .informational
+        // Prefer the application icon if available; fall back to an SF Symbol
+        if let appIcon = NSImage(named: "NSApplicationIcon") ?? NSApplication.shared.applicationIconImage {
+            alert.icon = appIcon
+        } else if let symbol = NSImage(systemSymbolName: "mic.circle.fill", accessibilityDescription: "Typeswift") {
+            alert.icon = symbol
+        }
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }

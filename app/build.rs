@@ -37,6 +37,9 @@ fn main() {
     
     // Set rpath for finding the dylib at runtime
     if cfg!(target_os = "macos") {
+        // Where we expect to stage the Swift dylib inside the app bundle
+        println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../Frameworks");
+        // Also include local build folder rpaths for dev runs
         println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../VoicySwift/.build/release");
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}", build_dir.display());
     }
