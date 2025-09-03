@@ -213,7 +213,6 @@ impl Clone for SharedSwiftTranscriber {
 
 // ===== Modifier State Utilities (macOS) =====
 
-#[cfg(target_os = "macos")]
 #[allow(non_upper_case_globals)]
 mod modifiers {
     use std::thread;
@@ -298,10 +297,6 @@ mod modifiers {
     }
 }
 
-#[cfg(target_os = "macos")]
 pub fn wait_modifiers_released(timeout_ms: u64) -> bool {
     modifiers::wait_modifiers_released(timeout_ms)
 }
-
-#[cfg(not(target_os = "macos"))]
-pub fn wait_modifiers_released(_timeout_ms: u64) -> bool { true }

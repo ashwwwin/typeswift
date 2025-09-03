@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-#[cfg(target_os = "macos")]
 use crate::platform::macos::ffi::{init_keyboard_monitor, shutdown_keyboard_monitor, register_push_to_talk_callback};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -27,7 +26,6 @@ pub struct HotkeyHandler {
     push_to_talk_hotkey: Arc<Mutex<Option<HotKey>>>,
     // Event sender for macOS fn-key callback registration (set by start_event_loop)
     event_sender: Arc<Mutex<Option<Sender<HotkeyEvent>>>>,
-    #[cfg(target_os = "macos")]
     uses_fn_key: Arc<Mutex<bool>>,
 }
 
@@ -41,7 +39,6 @@ impl HotkeyHandler {
             toggle_hotkey: Arc::new(Mutex::new(None)),
             push_to_talk_hotkey: Arc::new(Mutex::new(None)),
             event_sender: Arc::new(Mutex::new(None)),
-            #[cfg(target_os = "macos")]
             uses_fn_key: Arc::new(Mutex::new(false)),
         })
     }
@@ -56,48 +53,43 @@ impl HotkeyHandler {
         }
         
 
-        // Check if trying to use fn key on macOS
-        #[cfg(target_os = "macos")]
-        {
-            if config.push_to_talk.to_lowercase() == "fn" || 
-               config.push_to_talk.to_lowercase() == "function" ||
-               config.push_to_talk.to_lowercase() == "globe" {
-                // Use native macOS keyboard monitor for fn key
-                {
-                    let mut uses_fn_key = self.uses_fn_key.lock().unwrap();
-                    *uses_fn_key = true;
-                }
-                println!("✅ Using native macOS monitor for fn key (hold to record)");
-                // If event sender is available (event loop started), ensure callback is registered
-                if let Some(sender) = self.event_sender.lock().unwrap().clone() {
-                    // Initialize the keyboard monitor (idempotent in Swift layer) and register callback
-                    if init_keyboard_monitor() {
-                        register_push_to_talk_callback(sender);
-                        println!("✅ Registered fn key callback");
-                    } else {
-                        eprintln!("❌ Failed to initialize fn key monitoring. Please grant accessibility permissions.");
-                    }
-                }
-                
-                // Still register toggle window if specified
-                if let Some(ref toggle_key) = config.toggle_window {
-                    let toggle_hotkey = parse_hotkey(toggle_key)?;
-                    self.manager.register(toggle_hotkey.clone())
-                        .map_err(|e| VoicyError::HotkeyRegistrationFailed(format!("Failed to register toggle: {}", e)))?;
-                    *self.toggle_hotkey.lock().unwrap() = Some(toggle_hotkey);
-                    println!("✅ Registered toggle window: {}", toggle_key);
-                }
-                
-                
-                return Ok(());
+        // Check if trying to use fn key
+        if config.push_to_talk.to_lowercase() == "fn" || 
+           config.push_to_talk.to_lowercase() == "function" ||
+           config.push_to_talk.to_lowercase() == "globe" {
+            // Use native macOS keyboard monitor for fn key
+            {
+                let mut uses_fn_key = self.uses_fn_key.lock().unwrap();
+                *uses_fn_key = true;
             }
+            println!("✅ Using native macOS monitor for fn key (hold to record)");
+            // If event sender is available (event loop started), ensure callback is registered
+            if let Some(sender) = self.event_sender.lock().unwrap().clone() {
+                // Initialize the keyboard monitor (idempotent in Swift layer) and register callback
+                if init_keyboard_monitor() {
+                    register_push_to_talk_callback(sender);
+                    println!("✅ Registered fn key callback");
+                } else {
+                    eprintln!("❌ Failed to initialize fn key monitoring. Please grant accessibility permissions.");
+                }
+            }
+            
+            // Still register toggle window if specified
+            if let Some(ref toggle_key) = config.toggle_window {
+                let toggle_hotkey = parse_hotkey(toggle_key)?;
+                self.manager.register(toggle_hotkey.clone())
+                    .map_err(|e| VoicyError::HotkeyRegistrationFailed(format!("Failed to register toggle: {}", e)))?;
+                *self.toggle_hotkey.lock().unwrap() = Some(toggle_hotkey);
+                println!("✅ Registered toggle window: {}", toggle_key);
+            }
+            
+            return Ok(());
         }
 
         let push_to_talk_hotkey = parse_hotkey(&config.push_to_talk)?;
         self.manager.register(push_to_talk_hotkey.clone())
             .map_err(|e| VoicyError::HotkeyRegistrationFailed(format!("Failed to register push-to-talk: {}", e)))?;
-        // If we are switching away from fn mode on macOS, shut down monitor
-        #[cfg(target_os = "macos")]
+        // If we are switching away from fn mode, shut down monitor
         {
             let mut uses_fn_key = self.uses_fn_key.lock().unwrap();
             if *uses_fn_key {
@@ -130,20 +122,17 @@ impl HotkeyHandler {
             *slot = Some(sender.clone());
         }
         
-        // Setup fn key monitoring on macOS if needed
-        #[cfg(target_os = "macos")]
-        {
-            if *self.uses_fn_key.lock().unwrap() {
-                let sender_clone = sender.clone();
-                
-                // Initialize the keyboard monitor
-                if init_keyboard_monitor() {
-                    // Register callback for push-to-talk events
-                    register_push_to_talk_callback(sender_clone);
-                    println!("✅ macOS fn key monitoring initialized");
-                } else {
-                    eprintln!("❌ Failed to initialize fn key monitoring. Please grant accessibility permissions.");
-                }
+        // Setup fn key monitoring if needed
+        if *self.uses_fn_key.lock().unwrap() {
+            let sender_clone = sender.clone();
+            
+            // Initialize the keyboard monitor
+            if init_keyboard_monitor() {
+                // Register callback for push-to-talk events
+                register_push_to_talk_callback(sender_clone);
+                println!("✅ macOS fn key monitoring initialized");
+            } else {
+                eprintln!("❌ Failed to initialize fn key monitoring. Please grant accessibility permissions.");
             }
         }
         
@@ -254,16 +243,7 @@ fn parse_hotkey(hotkey_str: &str) -> VoicyResult<HotKey> {
 
     for part in parts {
         match part.to_lowercase().as_str() {
-            "cmd" | "command" | "meta" => {
-                #[cfg(target_os = "macos")]
-                {
-                    modifiers |= Modifiers::SUPER;
-                }
-                #[cfg(not(target_os = "macos"))]
-                {
-                    modifiers |= Modifiers::CONTROL;
-                }
-            }
+            "cmd" | "command" | "meta" => { modifiers |= Modifiers::SUPER }
             "ctrl" | "control" => modifiers |= Modifiers::CONTROL,
             "alt" | "option" | "opt" => modifiers |= Modifiers::ALT,  // Support Option key
             "shift" => modifiers |= Modifiers::SHIFT,
@@ -283,12 +263,9 @@ fn parse_hotkey(hotkey_str: &str) -> VoicyResult<HotKey> {
 
 impl Drop for HotkeyHandler {
     fn drop(&mut self) {
-        #[cfg(target_os = "macos")]
-        {
-            if *self.uses_fn_key.lock().unwrap() {
-                shutdown_keyboard_monitor();
-                println!("🧹 Cleaned up keyboard monitor");
-            }
+        if *self.uses_fn_key.lock().unwrap() {
+            shutdown_keyboard_monitor();
+            println!("🧹 Cleaned up keyboard monitor");
         }
     }
 }

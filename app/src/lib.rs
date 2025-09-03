@@ -1,3 +1,7 @@
+// Hard gate: this crate only supports macOS
+#[cfg(not(target_os = "macos"))]
+compile_error!("This crate supports only macOS (target_os = \"macos\").");
+
 pub mod config;
 pub mod error;
 pub mod platform;

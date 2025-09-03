@@ -5,7 +5,6 @@ use crate::input::HotkeyEvent;
 use crate::output::TypingQueue;
 use crate::state::{AppStateManager, RecordingState};
 use crate::window::WindowManager;
-#[cfg(target_os = "macos")]
 use crate::platform::macos::ffi as menubar_ffi;
 use crossbeam_channel::Receiver;
 use std::sync::{Arc, Mutex};
@@ -109,7 +108,6 @@ impl AppController {
                     window_manager.show_without_focus()?;
 
                     // Update menu bar icon
-                    #[cfg(target_os = "macos")]
                     menubar_ffi::MenuBarController::set_recording(true);
 
                     if let Ok(mut audio) = audio_processor.lock() {
@@ -127,7 +125,6 @@ impl AppController {
                     window_manager.hide_and_deactivate_blocking()?;
 
                     // Update menu bar icon
-                    #[cfg(target_os = "macos")]
                     menubar_ffi::MenuBarController::set_recording(false);
 
                     // Offload finalization to a background thread to keep controller responsive
@@ -143,11 +140,8 @@ impl AppController {
                         };
 
                         // Ensure PTT modifiers are fully released and focus returned before typing
-                        #[cfg(target_os = "macos")]
-                        {
-                            println!("⏱️ Waiting for modifier release before typing...");
-                            let _ = menubar_ffi::wait_modifiers_released(300);
-                        }
+                        println!("⏱️ Waiting for modifier release before typing...");
+                        let _ = menubar_ffi::wait_modifiers_released(300);
                         // Small delay for app focus settle
                         std::thread::sleep(std::time::Duration::from_millis(80));
                         println!("⌨️ Queueing typing: len={}, add_space={}", final_text.len(), config.read().output.add_space_between_utterances);

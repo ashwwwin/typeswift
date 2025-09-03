@@ -1,3 +1,7 @@
+// Hard gate: this binary only supports macOS
+#[cfg(not(target_os = "macos"))]
+compile_error!("This crate supports only macOS (target_os = \"macos\").");
+
 // Use the library crate modules
 
 use typeswift::config::Config;
@@ -11,7 +15,6 @@ use typeswift::state::AppStateManager;
 // use std::sync::{Arc, Mutex};
 use typeswift::window::WindowManager;
 use crossbeam_channel::bounded;
-#[cfg(target_os = "macos")]
 use typeswift::platform::macos::ffi as menubar_ffi;
 
 struct TypeswiftView {
@@ -70,11 +73,8 @@ impl Render for PreferencesView {
         let ptt = cfg.hotkeys.push_to_talk.clone();
         drop(cfg);
 
-        // Query launch at login status (macOS only)
-        #[cfg(target_os = "macos")]
+        // Query launch at login status
         let launch_enabled = typeswift::platform::macos::ffi::MenuBarController::is_launch_at_login_enabled();
-        #[cfg(not(target_os = "macos"))]
-        let launch_enabled = false;
 
         
         let typing_row = {
@@ -151,8 +151,7 @@ impl Render for PreferencesView {
                 })
         };
 
-        // Launch at Login toggle (macOS only)
-        #[cfg(target_os = "macos")]
+        // Launch at Login toggle
         let launch_row = {
             let handle_holder = self.handle_holder.clone();
             div()
@@ -302,12 +301,7 @@ impl Render for PreferencesView {
             )
             .child(typing_row)
             .child(add_space_row)
-            .child({
-                #[cfg(target_os = "macos")]
-                { launch_row }
-                #[cfg(not(target_os = "macos"))]
-                { div() }
-            })
+            .child(launch_row)
             .child(ptt_row)
             .child(set_fn_button)
             // .child(div().mt(px(6.0)).child(
@@ -381,9 +375,8 @@ fn main() {
         // Create event channels for the controller and UI
         let (event_tx, event_rx) = bounded::<HotkeyEvent>(256);
         let (ui_tx, ui_rx) = bounded::<HotkeyEvent>(64);
-        #[cfg(target_os = "macos")]
+        // Wire Preferences menu item to controller via callback
         {
-            // Wire Preferences menu item to controller via callback
             use std::sync::mpsc;
             let (prefs_tx, prefs_rx) = mpsc::channel::<HotkeyEvent>();
             menubar_ffi::register_preferences_callback(prefs_tx);

@@ -1,15 +1,10 @@
-#![allow(unexpected_cfgs)]
 use crate::error::{VoicyError, VoicyResult};
 use parking_lot::RwLock;
 use std::sync::Arc;
 
-#[cfg(target_os = "macos")]
 use cocoa::base::{id, nil};
-#[cfg(target_os = "macos")]
 use cocoa::appkit::NSApp;
-#[cfg(target_os = "macos")]
 use dispatch::Queue;
-#[cfg(target_os = "macos")]
 use objc::{msg_send, sel, sel_impl};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -40,71 +35,38 @@ impl Clone for WindowManager {
 
 impl WindowManager {
     pub fn setup_properties() -> VoicyResult<()> {
-        #[cfg(target_os = "macos")]
-        {
-            setup_window_properties_macos()
-        }
-        
-        #[cfg(not(target_os = "macos"))]
-        {
-            println!("⚠️ Window setup not implemented for this platform");
-            Ok(())
-        }
+        setup_window_properties_macos()
     }
     
     pub fn show_without_focus(&self) -> VoicyResult<()> {
         println!("🪟 Showing window without focus");
-        
-        #[cfg(target_os = "macos")]
-        {
-            let state = self.state.clone();
-            
-            Queue::main().exec_async(move || {
-                if let Err(e) = show_window_macos() {
-                    eprintln!("❌ Failed to show window: {}", e);
-                    return;
-                }
-                // Explicitly deactivate so we never steal focus
-                if let Err(e) = deactivate_app_macos() {
-                    eprintln!("⚠️ Failed to deactivate app after show: {}", e);
-                }
-                *state.write() = WindowState::Visible;
-                println!("✅ Window shown (no focus steal)");
-            });
-        }
-        
-        #[cfg(not(target_os = "macos"))]
-        {
-            *self.state.write() = WindowState::Visible;
-            println!("✅ Window shown (simulated)");
-        }
-        
+        let state = self.state.clone();
+        Queue::main().exec_async(move || {
+            if let Err(e) = show_window_macos() {
+                eprintln!("❌ Failed to show window: {}", e);
+                return;
+            }
+            // Explicitly deactivate so we never steal focus
+            if let Err(e) = deactivate_app_macos() {
+                eprintln!("⚠️ Failed to deactivate app after show: {}", e);
+            }
+            *state.write() = WindowState::Visible;
+            println!("✅ Window shown (no focus steal)");
+        });
         Ok(())
     }
     
     pub fn hide(&self) -> VoicyResult<()> {
         println!("🪟 Hiding window");
-        
-        #[cfg(target_os = "macos")]
-        {
-            let state = self.state.clone();
-            
-            Queue::main().exec_async(move || {
-                if let Err(e) = hide_window_macos() {
-                    eprintln!("❌ Failed to hide window: {}", e);
-                    return;
-                }
-                *state.write() = WindowState::Hidden;
-                println!("✅ Window hidden");
-            });
-        }
-        
-        #[cfg(not(target_os = "macos"))]
-        {
-            *self.state.write() = WindowState::Hidden;
-            println!("✅ Window hidden (simulated)");
-        }
-        
+        let state = self.state.clone();
+        Queue::main().exec_async(move || {
+            if let Err(e) = hide_window_macos() {
+                eprintln!("❌ Failed to hide window: {}", e);
+                return;
+            }
+            *state.write() = WindowState::Hidden;
+            println!("✅ Window hidden");
+        });
         Ok(())
     }
 
@@ -112,53 +74,36 @@ impl WindowManager {
     pub fn hide_and_deactivate_blocking(&self) -> VoicyResult<()> {
         println!("🪟 Hiding window and deactivating app (blocking)");
 
-        #[cfg(target_os = "macos")]
-        {
-            use std::sync::mpsc;
-            use std::time::Duration;
+        use std::sync::mpsc;
+        use std::time::Duration;
 
-            let (tx, rx) = mpsc::channel::<()>();
-            let state = self.state.clone();
+        let (tx, rx) = mpsc::channel::<()>();
+        let state = self.state.clone();
 
-            Queue::main().exec_async(move || {
-                if let Err(e) = hide_window_macos() {
-                    eprintln!("❌ Failed to hide window: {}", e);
-                    let _ = tx.send(());
-                    return;
-                }
-                // Deactivate the app so the previous app regains focus
-                if let Err(e) = deactivate_app_macos() {
-                    eprintln!("⚠️ Failed to deactivate app: {}", e);
-                }
-                *state.write() = WindowState::Hidden;
-                println!("✅ Window hidden and app deactivated");
+        Queue::main().exec_async(move || {
+            if let Err(e) = hide_window_macos() {
+                eprintln!("❌ Failed to hide window: {}", e);
                 let _ = tx.send(());
-            });
+                return;
+            }
+            // Deactivate the app so the previous app regains focus
+            if let Err(e) = deactivate_app_macos() {
+                eprintln!("⚠️ Failed to deactivate app: {}", e);
+            }
+            *state.write() = WindowState::Hidden;
+            println!("✅ Window hidden and app deactivated");
+            let _ = tx.send(());
+        });
 
-            // Wait briefly for the hide/deactivate to complete
-            let _ = rx.recv_timeout(Duration::from_millis(250));
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            *self.state.write() = WindowState::Hidden;
-        }
+        // Wait briefly for the hide/deactivate to complete
+        let _ = rx.recv_timeout(Duration::from_millis(250));
 
         Ok(())
     }
     
     pub fn hide_direct(&self) -> VoicyResult<()> {
-        #[cfg(target_os = "macos")]
-        {
-            hide_window_macos()?;
-            *self.state.write() = WindowState::Hidden;
-        }
-        
-        #[cfg(not(target_os = "macos"))]
-        {
-            *self.state.write() = WindowState::Hidden;
-        }
-        
+        hide_window_macos()?;
+        *self.state.write() = WindowState::Hidden;
         Ok(())
     }
     
@@ -171,25 +116,15 @@ impl WindowManager {
     }
 
     pub fn focus_preferences() -> VoicyResult<()> {
-        #[cfg(target_os = "macos")]
-        {
-            Queue::main().exec_async(move || {
-                if let Err(e) = focus_preferences_window_macos() {
-                    eprintln!("❌ Failed to focus preferences window: {}", e);
-                }
-            });
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            // No-op on non-macOS
-        }
-
+        Queue::main().exec_async(move || {
+            if let Err(e) = focus_preferences_window_macos() {
+                eprintln!("❌ Failed to focus preferences window: {}", e);
+            }
+        });
         Ok(())
     }
 }
 
-#[cfg(target_os = "macos")]
 fn setup_window_properties_macos() -> VoicyResult<()> {
     unsafe {
         let app: id = NSApp();
@@ -223,7 +158,6 @@ fn setup_window_properties_macos() -> VoicyResult<()> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
 fn show_window_macos() -> VoicyResult<()> {
     unsafe {
         let app: id = NSApp();
@@ -252,7 +186,6 @@ fn show_window_macos() -> VoicyResult<()> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
 fn hide_window_macos() -> VoicyResult<()> {
     unsafe {
         let app: id = NSApp();
@@ -275,7 +208,6 @@ fn hide_window_macos() -> VoicyResult<()> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
 fn deactivate_app_macos() -> VoicyResult<()> {
     unsafe {
         let app: id = NSApp();
@@ -287,7 +219,6 @@ fn deactivate_app_macos() -> VoicyResult<()> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
 fn focus_preferences_window_macos() -> VoicyResult<()> {
     unsafe {
         let app: id = NSApp();
