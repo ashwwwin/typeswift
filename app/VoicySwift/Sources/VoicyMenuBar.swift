@@ -80,6 +80,10 @@ import ServiceManagement
     
     
     @objc private func openPreferences() {
+        // Ensure app is active so the Preferences window can become key
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+        }
         // Notify Rust via registered preferences callback
         NotificationCenter.default.post(name: NSNotification.Name("VoicyOpenPreferences"), object: nil)
     }

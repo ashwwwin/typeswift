@@ -88,7 +88,6 @@ impl Render for PreferencesView {
         let add_space = cfg.output.add_space_between_utterances;
         let streaming_enabled = cfg.streaming.enabled;
         let ptt = cfg.hotkeys.push_to_talk.clone();
-        let toggle = cfg.hotkeys.toggle_window.clone();
         drop(cfg);
 
         let toggle_typing = {
@@ -300,42 +299,6 @@ impl Render for PreferencesView {
                 }
             });
 
-        // Toggle window preset
-        let handle_holder7 = self.handle_holder.clone();
-        let cfg_arc7 = self.config.clone();
-        let hk7 = self.hotkeys.clone();
-        let set_toggle_cmd_shift_bslash = div()
-            .px(px(6.0)).py(px(4.0)).rounded_sm().border_1().border_color(rgb(0x374151)).cursor_pointer()
-            .child("Toggle: Cmd+Shift+\\")
-            .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
-                let mut cfg = cfg_arc7.write();
-                cfg.hotkeys.toggle_window = Some("cmd+shift+\\".to_string());
-                if let Some(path) = voicy::config::Config::config_path() { let _ = cfg.save(path); }
-                if let Ok(mut hk) = hk7.lock() {
-                    let _ = hk.register_hotkeys(&cfg.hotkeys);
-                }
-                if let Some(handle) = handle_holder7.lock().unwrap().clone() {
-                    let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
-                }
-            });
-
-        let handle_holder8 = self.handle_holder.clone();
-        let cfg_arc8 = self.config.clone();
-        let hk8 = self.hotkeys.clone();
-        let clear_toggle = div()
-            .px(px(6.0)).py(px(4.0)).rounded_sm().border_1().border_color(rgb(0x374151)).cursor_pointer()
-            .child("Clear Toggle")
-            .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
-                let mut cfg = cfg_arc8.write();
-                cfg.hotkeys.toggle_window = None;
-                if let Some(path) = voicy::config::Config::config_path() { let _ = cfg.save(path); }
-                if let Ok(mut hk) = hk8.lock() {
-                    let _ = hk.register_hotkeys(&cfg.hotkeys);
-                }
-                if let Some(handle) = handle_holder8.lock().unwrap().clone() {
-                    let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
-                }
-            });
 
 
         div()
@@ -357,7 +320,7 @@ impl Render for PreferencesView {
                     .w_full()
                     .flex()
                     .justify_end()
-                    .child(div().text_sm().child("Voicy Preferences"))
+                    .child(div().text_xs().child("Preferences"))
             )
             .child(typing_row)
             .child(add_space_row)
@@ -371,11 +334,7 @@ impl Render for PreferencesView {
                     .child(set_ptt_cmd_space)
                     .child(set_ptt_opt_space),
             )
-            .child(div().mt(px(8.0)).child(format!(
-                "Toggle window: {}",
-                toggle.clone().unwrap_or_else(|| "None".into())
-            )))
-            .child(div().flex().gap(px(6.0)).child(set_toggle_cmd_shift_bslash).child(clear_toggle))
+            
             .child(div().mt(px(6.0)).child(
                 "Tip: Click a row to toggle. Close this window when done.",
             ))
@@ -526,9 +485,7 @@ fn main() {
             "   Push-to-talk: {} (hold to record)",
             config_clone.hotkeys.push_to_talk
         );
-        if let Some(ref key) = config_clone.hotkeys.toggle_window {
-            println!("   Toggle window: {}", key);
-        }
+        // Toggle window hotkey setting removed from Preferences UI; still supported if present in config file.
         println!("✅ Hotkeys forwarding independently of UI");
 
         // Removed file watcher: config changes now apply immediately where edited (Preferences window and hotkey presets).
