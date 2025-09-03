@@ -16,7 +16,6 @@ use typeswift::platform::macos::ffi as menubar_ffi;
 
 struct TypeswiftView {
     state: AppStateManager,
-    config: std::sync::Arc<parking_lot::RwLock<typeswift::config::Config>>,
 }
 
 struct PreferencesView {
@@ -423,7 +422,6 @@ fn main() {
         let controller = AppController::new(config_clone.clone());
         let state_for_view = controller.state();
         let config_handle_for_view = controller.config_handle();
-        let config_handle_for_window = config_handle_for_view.clone();
 
         let window = cx
             .open_window(
@@ -439,8 +437,7 @@ fn main() {
                 },
                 move |_window, cx| {
                     let state = state_for_view.clone();
-                    let config_arc = config_handle_for_window.clone();
-                    cx.new(|_cx| TypeswiftView { state, config: config_arc })
+                    cx.new(|_cx| TypeswiftView { state })
                 },
             )
             .unwrap();

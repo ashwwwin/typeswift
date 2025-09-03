@@ -267,10 +267,6 @@ mod modifiers {
         if pressed.is_empty() { "<none>".to_string() } else { pressed.join(",") }
     }
 
-    pub fn modifiers_down() -> bool {
-        any_down(&snapshot())
-    }
-
     pub fn wait_modifiers_released(timeout_ms: u64) -> bool {
         let start = Instant::now();
         let initial = snapshot();

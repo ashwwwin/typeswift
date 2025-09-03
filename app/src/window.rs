@@ -1,3 +1,4 @@
+#![allow(unexpected_cfgs)]
 use crate::error::{VoicyError, VoicyResult};
 use parking_lot::RwLock;
 use std::sync::Arc;

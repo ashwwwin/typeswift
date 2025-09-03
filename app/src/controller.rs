@@ -9,7 +9,6 @@ use crate::window::WindowManager;
 use crate::platform::macos::ffi as menubar_ffi;
 use crossbeam_channel::Receiver;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 /// Central controller that owns the app orchestration and processes events.
 pub struct AppController {
