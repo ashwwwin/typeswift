@@ -418,6 +418,13 @@ fn main() {
             });
         }
 
+        // Create controller before the window so we can pass its state/config directly,
+        // avoiding an immediate window.update that can re-enter gpui internals.
+        let controller = AppController::new(config_clone.clone());
+        let state_for_view = controller.state();
+        let config_handle_for_view = controller.config_handle();
+        let config_handle_for_window = config_handle_for_view.clone();
+
         let window = cx
             .open_window(
                 WindowOptions {
@@ -431,10 +438,8 @@ fn main() {
                     ..Default::default()
                 },
                 move |_window, cx| {
-                    let state = AppStateManager::new();
-                    let config_arc = std::sync::Arc::new(parking_lot::RwLock::new(
-                        typeswift::config::Config::load().unwrap_or_default(),
-                    ));
+                    let state = state_for_view.clone();
+                    let config_arc = config_handle_for_window.clone();
                     cx.new(|_cx| TypeswiftView { state, config: config_arc })
                 },
             )
@@ -459,18 +464,8 @@ fn main() {
             eprintln!("⚠️ Failed to setup window properties: {}", e);
         }
 
-        // Start the controller after window setup so show/hide works
-        let controller = AppController::new(config_clone.clone());
         // Share state between UI and controller
-        let state_for_view = controller.state();
-        // Replace the VoicyView's state with the controller's state
-        // by re-rendering the window content with the shared state.
-        let config_handle_for_view = controller.config_handle();
         let prefs_config_handle = config_handle_for_view.clone();
-        let _ = window.update(cx, move |voicy_view, _window, _cx| {
-            voicy_view.state = state_for_view.clone();
-            voicy_view.config = config_handle_for_view.clone();
-        });
 
         // Apply window properties (always-on-top, etc.)
         

@@ -192,35 +192,35 @@ import ServiceManagement
     }
     
     func enableLaunchAtStartup() {
-        // Modern way using ServiceManagement (macOS 13+)
-        if #available(macOS 13.0, *) {
+        // Prefer modern ServiceManagement only when running from a real .app bundle
+        let isBundledApp = Bundle.main.bundlePath.hasSuffix(".app")
+        if #available(macOS 13.0, *), isBundledApp {
             do {
                 try SMAppService.mainApp.register()
+                return
             } catch {
                 print("Failed to register login item: \(error)")
-                // Fall back to LaunchAgent method
-                installLaunchAgent()
+                // Fall back to LaunchAgent method in dev or when registration is denied
             }
-        } else {
-            // Use LaunchAgent for older macOS versions
-            installLaunchAgent()
         }
+        // Fallback: LaunchAgent works for dev runs and older macOS
+        installLaunchAgent()
     }
     
     func disableLaunchAtStartup() {
-        // Modern way using ServiceManagement (macOS 13+)
-        if #available(macOS 13.0, *) {
+        // Prefer ServiceManagement only when running from a real .app bundle
+        let isBundledApp = Bundle.main.bundlePath.hasSuffix(".app")
+        if #available(macOS 13.0, *), isBundledApp {
             do {
                 try SMAppService.mainApp.unregister()
+                return
             } catch {
                 print("Failed to unregister login item: \(error)")
-                // Fall back to LaunchAgent method
-                uninstallLaunchAgent()
+                // Fall back below
             }
-        } else {
-            // Use LaunchAgent for older macOS versions
-            uninstallLaunchAgent()
         }
+        // Fallback for dev/older macOS
+        uninstallLaunchAgent()
     }
     
     private func installLaunchAgent() {
