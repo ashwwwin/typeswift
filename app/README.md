@@ -107,6 +107,13 @@ toggle_window = "cmd+shift+y"
 - The Swift bridge (FluidAudio) looks for a Core ML model locally and downloads it on first run if not present.
 - To provide your own, set an absolute path in `model_name` or set `TYPESWIFT_MODELS=/path/to/model_dir`.
 
+## Supported Languages
+Parakeet TDT v3 (0.6B) supports 25 European languages with automatic detection:
+
+- English, Spanish, French, German, Bulgarian, Croatian, Czech, Danish, Dutch,
+  Estonian, Finnish, Greek, Hungarian, Italian, Latvian, Lithuanian, Maltese,
+  Polish, Portuguese, Romanian, Slovak, Slovenian, Swedish, Russian, Ukrainian.
+
 ## Logging & Troubleshooting
 
 - Verbose logs: `RUST_LOG=info cargo run --release`
