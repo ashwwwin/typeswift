@@ -24,6 +24,8 @@ struct PreferencesView {
     open_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     handle_holder: std::sync::Arc<std::sync::Mutex<Option<gpui::WindowHandle<PreferencesView>>>>,
     hotkeys: std::sync::Arc<std::sync::Mutex<voicy::input::HotkeyHandler>>,
+    capture_focus: gpui::FocusHandle,
+    capturing_ptt: bool,
     rev: u64,
 }
 
@@ -165,56 +167,100 @@ impl Render for PreferencesView {
                 })
         };
 
-        
+        // Push-to-talk: capture shortcut inline
+        let cfg_arc_cap = self.config.clone();
+        let hk_cap = self.hotkeys.clone();
+        let ptt_row = {
+            let capturing_label_color = if self.capturing_ptt { rgb(0xf59e0b) } else { rgb(0x9ca3af) };
+            div()
+                .w_full()
+                .mt(px(8.0))
+                .px(px(6.0))
+                .pt(px(2.0))
+                .pb(px(1.0))
+                .rounded_md()
+                .hover(|s| s.bg(rgb(0x1f2937)))
+                .flex()
+                .items_center()
+                .justify_between()
+                .track_focus(&self.capture_focus)
+                .on_key_down(_cx.listener(move |this, event: &gpui::KeyDownEvent, _window, _app_cx| {
+                    if !this.capturing_ptt { return; }
+                    let ks = &event.keystroke;
+                    let key = ks.key.as_str();
+                    if key.eq_ignore_ascii_case("escape") || key.eq_ignore_ascii_case("esc") {
+                        this.capturing_ptt = false;
+                        this.rev = this.rev.wrapping_add(1);
+                        return;
+                    }
+                    if key.is_empty() { return; }
+                    let mut parts: Vec<&str> = Vec::new();
+                    if ks.modifiers.platform { parts.push("cmd"); }
+                    if ks.modifiers.control { parts.push("ctrl"); }
+                    if ks.modifiers.alt { parts.push("opt"); }
+                    if ks.modifiers.shift { parts.push("shift"); }
+                    let lower = key.to_lowercase();
+                    let normalized_key = match lower.as_str() {
+                        "meta" => "cmd",
+                        "option" => "opt",
+                        "return" => "enter",
+                        other => other,
+                    };
+                    let mut composed = String::new();
+                    for (i, p) in parts.iter().enumerate() { if i > 0 { composed.push('+'); } composed.push_str(p); }
+                    if !parts.is_empty() { composed.push('+'); }
+                    composed.push_str(normalized_key);
 
+                    // Persist and apply
+                    {
+                        let mut cfg = cfg_arc_cap.write();
+                        cfg.hotkeys.push_to_talk = composed.clone();
+                        let to_save = cfg.clone();
+                        drop(cfg);
+                        if let Some(path) = voicy::config::Config::config_path() { let _ = to_save.save(path); }
+                    }
+                    if let Ok(mut hk) = hk_cap.lock() {
+                        let _ = hk.register_hotkeys(&cfg_arc_cap.read().hotkeys);
+                    }
+                    this.capturing_ptt = false;
+                    this.rev = this.rev.wrapping_add(1);
+                }))
+                .on_mouse_down(gpui::MouseButton::Left, _cx.listener(|this, _event, window, _app_cx| {
+                    this.capturing_ptt = true;
+                    this.rev = this.rev.wrapping_add(1);
+                    this.capture_focus.focus(window);
+                }))
+                .child(div().py(px(3.0)).child("Push-to-talk shortcut"))
+                .child(
+                    div()
+                        .text_color(capturing_label_color)
+                        .child(if self.capturing_ptt { "Listening… (press keys or Esc)".to_string() } else { ptt.clone() })
+                )
+        };
 
-        // Hotkey helpers (reopen window after saving)
-        let handle_holder4 = self.handle_holder.clone();
-        let cfg_arc4 = self.config.clone();
-        let hk4 = self.hotkeys.clone();
-        let set_ptt_fn = div()
+        // Small helper for Fn-only capture
+        let cfg_arc_fn = self.config.clone();
+        let hk_fn = self.hotkeys.clone();
+        let set_fn_button = div()
+            .mt(px(4.0))
             .px(px(6.0))
             .py(px(4.0))
             .rounded_sm()
             .border_1()
             .border_color(rgb(0x374151))
             .hover(|s| s.bg(rgb(0x1f2937)))
-            .child("Set Fn")
+            .child("Use Fn key")
             .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
-                let mut cfg = cfg_arc4.write();
+                let mut cfg = cfg_arc_fn.write();
                 cfg.hotkeys.push_to_talk = "fn".to_string();
-                if let Some(path) = voicy::config::Config::config_path() { let _ = cfg.save(path); }
-                // Apply hotkeys immediately
-                if let Ok(mut hk) = hk4.lock() {
-                    let _ = hk.register_hotkeys(&cfg.hotkeys);
-                }
-                if let Some(handle) = handle_holder4.lock().unwrap().clone() {
-                    let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
-                }
+                let to_save = cfg.clone();
+                drop(cfg);
+                if let Some(path) = voicy::config::Config::config_path() { let _ = to_save.save(path); }
+                if let Ok(mut hk) = hk_fn.lock() { let _ = hk.register_hotkeys(&to_save.hotkeys); }
+                // Trigger a lightweight rerender via handle if present
+                // (Preferences window updates via view.rev changes on next interactions)
+                let _ = app_cx;
             });
-
-        
-
-        let handle_holder6 = self.handle_holder.clone();
-        let cfg_arc6 = self.config.clone();
-        let hk6 = self.hotkeys.clone();
-        let set_ptt_opt_space = div()
-            .px(px(6.0)).py(px(4.0)).rounded_sm().border_1().border_color(rgb(0x374151))
-            .hover(|s| s.bg(rgb(0x1f2937)))
-            .child("Set Opt+Space")
-            .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
-                let mut cfg = cfg_arc6.write();
-                cfg.hotkeys.push_to_talk = "opt+space".to_string();
-                if let Some(path) = voicy::config::Config::config_path() { let _ = cfg.save(path); }
-                if let Ok(mut hk) = hk6.lock() {
-                    let _ = hk.register_hotkeys(&cfg.hotkeys);
-                }
-                if let Some(handle) = handle_holder6.lock().unwrap().clone() {
-                    let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
-                }
-            });
-
-
 
         div()
             .id("voicy-prefs-window")
@@ -242,15 +288,8 @@ impl Render for PreferencesView {
             )
             .child(typing_row)
             .child(add_space_row)
-            // Streaming removed
-            .child(div().mt(px(8.0)).child(format!("Push-to-talk: {}", ptt)))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(6.0))
-                    .child(set_ptt_fn)
-                    .child(set_ptt_opt_space),
-            )
+            .child(ptt_row)
+            .child(set_fn_button)
             // .child(div().mt(px(6.0)).child(
             //     "Tip: Click a row to toggle. Close this window when done.",
             // ))
@@ -442,7 +481,7 @@ fn main() {
                                         let open_flag = prefs_open_for_view.clone();
                                         let holder = holder_for_create.clone();
                                         let hk = hk_for_update.clone();
-                                        cx.new(|_| PreferencesView { config: prefs_config.clone(), open_flag, handle_holder: holder, hotkeys: hk, rev: 0 })
+                                        cx.new(|cx| PreferencesView { config: prefs_config.clone(), open_flag, handle_holder: holder, hotkeys: hk, capture_focus: cx.focus_handle(), capturing_ptt: false, rev: 0 })
                                     },
                                 )
                                 .unwrap();
