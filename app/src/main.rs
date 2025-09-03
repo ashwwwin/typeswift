@@ -8,7 +8,7 @@ use gpui::{
 use voicy::input::{HotkeyEvent, HotkeyHandler};
 use voicy::controller::AppController;
 use voicy::state::{AppStateManager, RecordingState};
-use std::sync::{Arc, Mutex};
+// use std::sync::{Arc, Mutex};
 use voicy::window::WindowManager;
 use crossbeam_channel::bounded;
 #[cfg(target_os = "macos")]
@@ -90,38 +90,7 @@ impl Render for PreferencesView {
         let ptt = cfg.hotkeys.push_to_talk.clone();
         drop(cfg);
 
-        let toggle_typing = {
-            let config = self.config.clone();
-            move || {
-                let mut cfg = config.write();
-                cfg.output.enable_typing = !cfg.output.enable_typing;
-                if let Some(path) = voicy::config::Config::config_path() {
-                    let _ = cfg.save(path);
-                }
-            }
-        };
-        let toggle_add_space = {
-            let config = self.config.clone();
-            move || {
-                let mut cfg = config.write();
-                cfg.output.add_space_between_utterances = !cfg.output.add_space_between_utterances;
-                if let Some(path) = voicy::config::Config::config_path() {
-                    let _ = cfg.save(path);
-                }
-            }
-        };
-        let toggle_streaming = {
-            let config = self.config.clone();
-            move || {
-                let mut cfg = config.write();
-                cfg.streaming.enabled = !cfg.streaming.enabled;
-                if let Some(path) = voicy::config::Config::config_path() {
-                    let _ = cfg.save(path);
-                }
-            }
-        };
-
-        let handle_holder = self.handle_holder.clone();
+        
 
         let typing_row = {
             let config = self.config.clone();
@@ -131,20 +100,20 @@ impl Render for PreferencesView {
                 .p(px(6.0))
                 .border_b_1()
                 .border_color(rgb(0x374151))
-                .cursor_pointer()
+                
+                .hover(|s| s.bg(rgb(0x1f2937)))
                 .flex()
                 .items_center()
-                .gap(px(8.0))
+                .justify_between()
+                .child(div().child("Enable typing"))
                 .child(
                     div()
-                        .size(px(16.0))
+                        .px(px(6.0))
+                        .py(px(2.0))
                         .rounded_sm()
-                        .border_1()
-                        .border_color(rgb(0x9ca3af))
-                        .bg(if typing_enabled { rgb(0x2563eb) } else { rgb(0x111827) })
-                        .child(if typing_enabled { "✓" } else { "" }),
+                        .bg(if typing_enabled { rgb(0x065f46) } else { rgb(0x7f1d1d) })
+                        .child(if typing_enabled { "On" } else { "Off" })
                 )
-                .child("Enable typing")
                 .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
                     // Update in-memory config
                     let mut cfg = config.write();
@@ -162,7 +131,7 @@ impl Render for PreferencesView {
                 })
         };
 
-        let handle_holder2 = self.handle_holder.clone();
+        
 
         let add_space_row = {
             let config = self.config.clone();
@@ -172,20 +141,20 @@ impl Render for PreferencesView {
                 .p(px(6.0))
                 .border_b_1()
                 .border_color(rgb(0x374151))
-                .cursor_pointer()
+                
+                .hover(|s| s.bg(rgb(0x1f2937)))
                 .flex()
                 .items_center()
-                .gap(px(8.0))
+                .justify_between()
+                .child(div().child("Add space between utterances"))
                 .child(
                     div()
-                        .size(px(16.0))
+                        .px(px(6.0))
+                        .py(px(2.0))
                         .rounded_sm()
-                        .border_1()
-                        .border_color(rgb(0x9ca3af))
-                        .bg(if add_space { rgb(0x2563eb) } else { rgb(0x111827) })
-                        .child(if add_space { "✓" } else { "" }),
+                        .bg(if add_space { rgb(0x065f46) } else { rgb(0x7f1d1d) })
+                        .child(if add_space { "On" } else { "Off" })
                 )
-                .child("Add space between utterances")
                 .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
                     let mut cfg = config.write();
                     cfg.output.add_space_between_utterances = !cfg.output.add_space_between_utterances;
@@ -200,7 +169,7 @@ impl Render for PreferencesView {
                 })
         };
 
-        let handle_holder3 = self.handle_holder.clone();
+        
 
         let streaming_row = {
             let config = self.config.clone();
@@ -210,20 +179,20 @@ impl Render for PreferencesView {
                 .p(px(6.0))
                 .border_b_1()
                 .border_color(rgb(0x374151))
-                .cursor_pointer()
+                
+                .hover(|s| s.bg(rgb(0x1f2937)))
                 .flex()
                 .items_center()
-                .gap(px(8.0))
+                .justify_between()
+                .child(div().child("Enable streaming"))
                 .child(
                     div()
-                        .size(px(16.0))
+                        .px(px(6.0))
+                        .py(px(2.0))
                         .rounded_sm()
-                        .border_1()
-                        .border_color(rgb(0x9ca3af))
-                        .bg(if streaming_enabled { rgb(0x2563eb) } else { rgb(0x111827) })
-                        .child(if streaming_enabled { "✓" } else { "" }),
+                        .bg(if streaming_enabled { rgb(0x065f46) } else { rgb(0x7f1d1d) })
+                        .child(if streaming_enabled { "On" } else { "Off" })
                 )
-                .child("Enable streaming")
                 .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
                     let mut cfg = config.write();
                     cfg.streaming.enabled = !cfg.streaming.enabled;
@@ -248,7 +217,7 @@ impl Render for PreferencesView {
             .rounded_sm()
             .border_1()
             .border_color(rgb(0x374151))
-            .cursor_pointer()
+            .hover(|s| s.bg(rgb(0x1f2937)))
             .child("Set Fn")
             .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
                 let mut cfg = cfg_arc4.write();
@@ -263,29 +232,14 @@ impl Render for PreferencesView {
                 }
             });
 
-        let handle_holder5 = self.handle_holder.clone();
-        let cfg_arc5 = self.config.clone();
-        let hk5 = self.hotkeys.clone();
-        let set_ptt_cmd_space = div()
-            .px(px(6.0)).py(px(4.0)).rounded_sm().border_1().border_color(rgb(0x374151)).cursor_pointer()
-            .child("Set Cmd+Space")
-            .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
-                let mut cfg = cfg_arc5.write();
-                cfg.hotkeys.push_to_talk = "cmd+space".to_string();
-                if let Some(path) = voicy::config::Config::config_path() { let _ = cfg.save(path); }
-                if let Ok(mut hk) = hk5.lock() {
-                    let _ = hk.register_hotkeys(&cfg.hotkeys);
-                }
-                if let Some(handle) = handle_holder5.lock().unwrap().clone() {
-                    let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
-                }
-            });
+        
 
         let handle_holder6 = self.handle_holder.clone();
         let cfg_arc6 = self.config.clone();
         let hk6 = self.hotkeys.clone();
         let set_ptt_opt_space = div()
-            .px(px(6.0)).py(px(4.0)).rounded_sm().border_1().border_color(rgb(0x374151)).cursor_pointer()
+            .px(px(6.0)).py(px(4.0)).rounded_sm().border_1().border_color(rgb(0x374151))
+            .hover(|s| s.bg(rgb(0x1f2937)))
             .child("Set Opt+Space")
             .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
                 let mut cfg = cfg_arc6.write();
@@ -331,7 +285,6 @@ impl Render for PreferencesView {
                     .flex()
                     .gap(px(6.0))
                     .child(set_ptt_fn)
-                    .child(set_ptt_cmd_space)
                     .child(set_ptt_opt_space),
             )
             
