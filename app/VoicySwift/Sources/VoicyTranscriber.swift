@@ -5,8 +5,8 @@ import FluidAudio
 @objc public class TypeswiftTranscriber: NSObject {
     private var asrManager: AsrManager?
     private var isInitialized = false
-    private let initializationQueue = DispatchQueue(label: "com.voicy.initialization")
-    private let transcriptionQueue = DispatchQueue(label: "com.voicy.transcription", attributes: .concurrent)
+    private let initializationQueue = DispatchQueue(label: "com.typeswift.initialization")
+    private let transcriptionQueue = DispatchQueue(label: "com.typeswift.transcription", attributes: .concurrent)
     
     /// Singleton instance for FFI usage
     @objc public static let shared = TypeswiftTranscriber()
@@ -49,18 +49,12 @@ import FluidAudio
                                 possiblePaths.append(URL(fileURLWithPath: envRoot))
                             }
                             possiblePaths.append(contentsOf: [
-                                // User's home directory
+                                // User's home directory (Typeswift)
                                 FileManager.default.homeDirectoryForCurrentUser
                                     .appendingPathComponent(".typeswift/models/parakeet-tdt-0.6b-v3-coreml"),
-                                // Backward compatibility
-                                FileManager.default.homeDirectoryForCurrentUser
-                                    .appendingPathComponent(".voicy/models/parakeet-tdt-0.6b-v3-coreml"),
-                                // Application Support
+                                // Application Support (Typeswift)
                                 FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-                                    .appendingPathComponent("Typeswift/models/parakeet-tdt-0.6b-v3-coreml"),
-                                // Backward compatibility
-                                FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-                                    .appendingPathComponent("Voicy/models/parakeet-tdt-0.6b-v3-coreml")
+                                    .appendingPathComponent("Typeswift/models/parakeet-tdt-0.6b-v3-coreml")
                             ].compactMap { $0 })
                             
                             var loadedModels: AsrModels? = nil

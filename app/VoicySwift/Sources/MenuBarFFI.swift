@@ -103,8 +103,6 @@ public func typeswift_terminate_app() {
 @_cdecl("typeswift_reset_first_launch")
 public func typeswift_reset_first_launch() {
     // Reset first launch flags for testing
-    UserDefaults.standard.removeObject(forKey: "com.voicy.hasLaunchedBefore")
-    UserDefaults.standard.removeObject(forKey: "com.voicy.hasAskedAboutLogin")
     UserDefaults.standard.removeObject(forKey: "com.typeswift.hasLaunchedBefore")
     UserDefaults.standard.removeObject(forKey: "com.typeswift.hasAskedAboutLogin")
     UserDefaults.standard.synchronize()

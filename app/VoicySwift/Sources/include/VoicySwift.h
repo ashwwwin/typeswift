@@ -16,10 +16,10 @@ int32_t typeswift_init(const char* model_path);
 /// Transcribe audio samples
 /// @param samples Pointer to float32 audio samples (16kHz mono)
 /// @param sample_count Number of samples
-/// @return Transcribed text as C string (caller must free with voicy_free_string)
+/// @return Transcribed text as C string (caller must free with typeswift_free_string)
 char* typeswift_transcribe(const float* samples, int32_t sample_count);
 
-/// Free a string returned by voicy_transcribe
+/// Free a string returned by typeswift_transcribe
 /// @param str String to free
 void typeswift_free_string(char* str);
 

@@ -49,7 +49,7 @@ cargo build --release
 
 ### From Rust
 ```rust
-use voicy::swift_ffi::SwiftTranscriber;
+use typeswift::platform::macos::ffi::SwiftTranscriber;
 
 let mut transcriber = SwiftTranscriber::new();
 transcriber.initialize(None)?;

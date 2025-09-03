@@ -235,7 +235,7 @@ import ServiceManagement
         
         // Get the app bundle path
         let appPath = Bundle.main.bundlePath
-        let executablePath = Bundle.main.executablePath ?? "\(appPath)/Contents/MacOS/voicy"
+        let executablePath = Bundle.main.executablePath ?? "\(appPath)/Contents/MacOS/typeswift"
         
         // Create launch agent plist
         let plistContent = """
@@ -303,9 +303,8 @@ import ServiceManagement
         let hasLaunchedBeforeKey = "com.typeswift.hasLaunchedBefore"
         let hasAskedAboutLoginKey = "com.typeswift.hasAskedAboutLogin"
         
-        // Backward compatibility: also check old Voicy keys
-        let hasLaunchedBefore = defaults.bool(forKey: hasLaunchedBeforeKey) || defaults.bool(forKey: "com.voicy.hasLaunchedBefore")
-        let hasAskedAboutLogin = defaults.bool(forKey: hasAskedAboutLoginKey) || defaults.bool(forKey: "com.voicy.hasAskedAboutLogin")
+        let hasLaunchedBefore = defaults.bool(forKey: hasLaunchedBeforeKey)
+        let hasAskedAboutLogin = defaults.bool(forKey: hasAskedAboutLoginKey)
         
         if !hasLaunchedBefore {
             // First time launch - show welcome

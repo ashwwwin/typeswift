@@ -75,16 +75,11 @@ impl Default for Config {
 
 impl Config {
     pub fn load() -> Result<Self> {
-        // Try Typeswift config first, then fallback to legacy Voicy path
+        // Load Typeswift config only
         if let Ok(home) = std::env::var("HOME") {
             let typeswift_path = PathBuf::from(&home).join(".typeswift").join("config.toml");
             if typeswift_path.exists() {
                 let contents = std::fs::read_to_string(typeswift_path)?;
-                return Ok(toml::from_str(&contents)?);
-            }
-            let legacy_path = PathBuf::from(&home).join(".voicy").join("config.toml");
-            if legacy_path.exists() {
-                let contents = std::fs::read_to_string(legacy_path)?;
                 return Ok(toml::from_str(&contents)?);
             }
         }
