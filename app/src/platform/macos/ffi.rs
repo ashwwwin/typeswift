@@ -202,3 +202,102 @@ impl Clone for SharedSwiftTranscriber {
         Self { inner: Arc::clone(&self.inner) }
     }
 }
+
+// ===== Modifier State Utilities (macOS) =====
+
+#[cfg(target_os = "macos")]
+#[allow(non_upper_case_globals)]
+mod modifiers {
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    // kCGEventSourceStateCombinedSessionState
+    const COMBINED_SESSION_STATE: u32 = 0;
+
+    // Virtual key codes (Carbon)
+    const kVK_CommandL: u16 = 0x37; // 55
+    const kVK_CommandR: u16 = 0x36; // 54
+    const kVK_ShiftL: u16 = 0x38;   // 56
+    const kVK_ShiftR: u16 = 0x3C;   // 60
+    const kVK_OptionL: u16 = 0x3A;  // 58
+    const kVK_OptionR: u16 = 0x3D;  // 61
+    const kVK_ControlL: u16 = 0x3B; // 59
+    const kVK_ControlR: u16 = 0x3E; // 62
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn CGEventSourceKeyState(state_id: u32, key: u16) -> bool;
+    }
+
+    fn is_key_down(key: u16) -> bool {
+        unsafe { CGEventSourceKeyState(COMBINED_SESSION_STATE, key) }
+    }
+
+    fn snapshot() -> [bool; 8] {
+        [
+            is_key_down(kVK_CommandL),
+            is_key_down(kVK_CommandR),
+            is_key_down(kVK_ShiftL),
+            is_key_down(kVK_ShiftR),
+            is_key_down(kVK_OptionL),
+            is_key_down(kVK_OptionR),
+            is_key_down(kVK_ControlL),
+            is_key_down(kVK_ControlR),
+        ]
+    }
+
+    fn any_down(s: &[bool; 8]) -> bool {
+        s.iter().copied().any(|b| b)
+    }
+
+    fn fmt_snapshot(s: &[bool; 8]) -> String {
+        let names = [
+            ("CmdL", s[0]), ("CmdR", s[1]), ("ShiftL", s[2]), ("ShiftR", s[3]),
+            ("OptL", s[4]), ("OptR", s[5]), ("CtrlL", s[6]), ("CtrlR", s[7]),
+        ];
+        let pressed: Vec<&str> = names.iter().filter_map(|(n, p)| if *p { Some(*n) } else { None }).collect();
+        if pressed.is_empty() { "<none>".to_string() } else { pressed.join(",") }
+    }
+
+    pub fn modifiers_down() -> bool {
+        any_down(&snapshot())
+    }
+
+    pub fn wait_modifiers_released(timeout_ms: u64) -> bool {
+        let start = Instant::now();
+        let initial = snapshot();
+        if !any_down(&initial) {
+            println!("⌨️ Modifiers already released");
+            return true;
+        }
+        println!("⌨️ Waiting for modifiers to release: {}", fmt_snapshot(&initial));
+
+        let deadline = start + Duration::from_millis(timeout_ms);
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                let last = snapshot();
+                println!(
+                    "⌛ Modifier wait timeout after {}ms, still down: {}",
+                    (now - start).as_millis(),
+                    fmt_snapshot(&last)
+                );
+                return !any_down(&last);
+            }
+            let snap = snapshot();
+            if !any_down(&snap) {
+                println!("✅ Modifiers released after {}ms", (now - start).as_millis());
+                return true;
+            }
+            thread::sleep(Duration::from_millis(8));
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn wait_modifiers_released(timeout_ms: u64) -> bool {
+    modifiers::wait_modifiers_released(timeout_ms)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn wait_modifiers_released(_timeout_ms: u64) -> bool { true }

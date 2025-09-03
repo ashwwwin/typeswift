@@ -131,32 +131,47 @@ impl AppController {
                     #[cfg(target_os = "macos")]
                     menubar_ffi::MenuBarController::set_recording(false);
 
-                    // Stop recording and get final text
-                    let final_text = if let Ok(mut audio) = audio_processor.lock() {
-                        audio.stop_recording().unwrap_or_default()
-                    } else {
-                        String::new()
-                    };
+                    // Offload finalization to a background thread to keep controller responsive
+                    let typing_queue = typing_queue.clone();
+                    let audio_processor = Arc::clone(audio_processor);
+                    let config = Arc::clone(config);
+                    let state = state.clone();
+                    std::thread::spawn(move || {
+                        let final_text = if let Ok(mut audio) = audio_processor.lock() {
+                            audio.stop_recording().unwrap_or_default()
+                        } else {
+                            String::new()
+                        };
 
-                    let typing_enabled = config.read().output.enable_typing;
-                    println!(
-                        "🔎 Typing decision -> enabled: {}, text_len: {}",
-                        typing_enabled,
-                        final_text.len()
-                    );
+                        // Ensure PTT modifiers are fully released and focus returned before typing
+                        #[cfg(target_os = "macos")]
+                        {
+                            println!("⏱️ Waiting for modifier release before typing...");
+                            let _ = menubar_ffi::wait_modifiers_released(300);
+                        }
+                        // Small delay for app focus settle
+                        std::thread::sleep(std::time::Duration::from_millis(80));
+                        println!("⌨️ Queueing typing: len={}, add_space={}", final_text.len(), config.read().output.add_space_between_utterances);
 
-                    // Always type all text at once after release (streaming removed)
-                    if !final_text.is_empty() && typing_enabled {
-                        println!("💬 Typing final text: '{}'", final_text);
-                        typing_queue
-                            .queue_typing(
-                                final_text,
-                                config.read().output.add_space_between_utterances,
-                            )
-                            .ok();
-                    }
+                        let typing_enabled = config.read().output.enable_typing;
+                        println!(
+                            "🔎 Typing decision -> enabled: {}, text_len: {}",
+                            typing_enabled,
+                            final_text.len()
+                        );
 
-                    state.set_recording_state(RecordingState::Idle);
+                        if !final_text.is_empty() && typing_enabled {
+                            let add_space = config.read().output.add_space_between_utterances;
+                            println!("💬 Typing final text ({} chars)", final_text.len());
+                            match typing_queue.queue_typing(final_text.clone(), add_space) {
+                                Ok(()) => println!("✅ Typing queued successfully"),
+                                Err(e) => eprintln!("❌ Failed to queue typing: {}", e),
+                            }
+                        }
+
+                        state.set_recording_state(RecordingState::Idle);
+                        println!("🏁 Processing complete; state=Idle");
+                    });
                 } else {
                     println!("⚠️ Cannot stop recording, state: {:?}", state.get_recording_state());
                 }
