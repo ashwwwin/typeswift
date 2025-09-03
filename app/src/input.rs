@@ -121,40 +121,45 @@ impl HotkeyHandler {
 
         thread::spawn(move || {
             println!("🚀 Starting hotkey event loop thread");
+            let rx = GlobalHotKeyEvent::receiver();
             loop {
-                if let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
-                    println!("🔑 Received hotkey event: {:?}", event);
-                    
-                    match event.state {
-                        HotKeyState::Pressed => {
-                            if let Some(hotkey_event) = handle_hotkey_press(
-                                event.id,
-                                &toggle_hotkey,
-                                &push_to_talk_hotkey,
-                                &is_push_to_talk_active,
-                            ) {
-                                println!("📤 Sending event: {:?}", hotkey_event);
-                                if let Err(e) = sender.send(hotkey_event) {
-                                    eprintln!("❌ Failed to send hotkey event: {}", e);
+                match rx.recv() {
+                    Ok(event) => {
+                        println!("🔑 Received hotkey event: {:?}", event);
+                        match event.state {
+                            HotKeyState::Pressed => {
+                                if let Some(hotkey_event) = handle_hotkey_press(
+                                    event.id,
+                                    &toggle_hotkey,
+                                    &push_to_talk_hotkey,
+                                    &is_push_to_talk_active,
+                                ) {
+                                    println!("📤 Sending event: {:?}", hotkey_event);
+                                    if let Err(e) = sender.send(hotkey_event) {
+                                        eprintln!("❌ Failed to send hotkey event: {}", e);
+                                    }
                                 }
                             }
-                        }
-                        HotKeyState::Released => {
-                            if let Some(hotkey_event) = handle_hotkey_release(
-                                event.id,
-                                &push_to_talk_hotkey,
-                                &is_push_to_talk_active,
-                            ) {
-                                println!("📤 Sending event: {:?}", hotkey_event);
-                                if let Err(e) = sender.send(hotkey_event) {
-                                    eprintln!("❌ Failed to send hotkey event: {}", e);
+                            HotKeyState::Released => {
+                                if let Some(hotkey_event) = handle_hotkey_release(
+                                    event.id,
+                                    &push_to_talk_hotkey,
+                                    &is_push_to_talk_active,
+                                ) {
+                                    println!("📤 Sending event: {:?}", hotkey_event);
+                                    if let Err(e) = sender.send(hotkey_event) {
+                                        eprintln!("❌ Failed to send hotkey event: {}", e);
+                                    }
                                 }
                             }
                         }
                     }
+                    Err(err) => {
+                        eprintln!("⚠️ GlobalHotKeyEvent receiver error: {:?}", err);
+                        // Brief backoff before retry loop to prevent tight spin on errors
+                        thread::sleep(Duration::from_millis(50));
+                    }
                 }
-
-                thread::sleep(Duration::from_millis(10));
             }
         });
 

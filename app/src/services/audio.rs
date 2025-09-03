@@ -7,11 +7,30 @@ use std::sync::Arc;
 
 // ===== Audio capture (cpal) =====
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use std::sync::mpsc::{channel, Sender};
+use std::thread::JoinHandle;
 
 pub struct AudioCapture {
     consumer: Arc<parking_lot::Mutex<HeapCons<f32>>>,
     is_recording: Arc<RwLock<bool>>,
     sample_rate: u32,
+    _thread: Arc<AudioThread>,
+}
+
+struct AudioThread {
+    stop_tx: parking_lot::Mutex<Option<Sender<()>>>,
+    handle: parking_lot::Mutex<Option<JoinHandle<()>>>,
+}
+
+impl Drop for AudioThread {
+    fn drop(&mut self) {
+        if let Some(tx) = self.stop_tx.lock().take() {
+            let _ = tx.send(());
+        }
+        if let Some(handle) = self.handle.lock().take() {
+            let _ = handle.join();
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -23,123 +42,167 @@ pub struct AudioReader {
 
 impl AudioCapture {
     pub fn new(target_sample_rate: u32) -> VoicyResult<Self> {
-        let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or_else(|| VoicyError::AudioInitFailed("No input device available".to_string()))?;
-
-        let supported_config = device.default_input_config().map_err(|e| {
-            VoicyError::AudioInitFailed(format!("Failed to get device config: {}", e))
-        })?;
-
-        let device_sample_rate = supported_config.sample_rate().0;
-        let channels = supported_config.channels() as usize;
-
-        println!(
-            "📊 Audio device: {} Hz, {} channels → {} Hz",
-            device_sample_rate, channels, target_sample_rate
-        );
-
         // Create ring buffer with sufficient size
         let ring_buffer_size = target_sample_rate as usize * 30; // 30 seconds buffer
         let rb = HeapRb::<f32>::new(ring_buffer_size);
-        let (mut producer, consumer) = rb.split();
+        let (producer, consumer) = rb.split();
 
-        let config = supported_config.into();
         let is_recording = Arc::new(RwLock::new(false));
         let is_recording_clone = is_recording.clone();
 
-        // Setup resampler if needed
-        let needs_resampling = device_sample_rate != target_sample_rate;
-        let resample_ratio = target_sample_rate as f64 / device_sample_rate as f64;
+        // Channel to keep the stream thread alive and signal shutdown
+        let (stop_tx, stop_rx) = channel::<()>();
+        let (ready_tx, ready_rx) = channel::<Result<(), String>>();
 
-        let mut resampler = if needs_resampling {
-            let params = SincInterpolationParameters {
-                sinc_len: 128,
-                f_cutoff: 0.95,
-                interpolation: SincInterpolationType::Linear,
-                oversampling_factor: 128,
-                window: WindowFunction::BlackmanHarris2,
-            };
-
-            Some(SincFixedIn::<f32>::new(resample_ratio, 2.0, params, 1024, 1).map_err(|e| {
-                VoicyError::AudioInitFailed(format!("Failed to create resampler: {}", e))
-            })?)
-        } else {
-            None
-        };
-
-        let mut input_buffer = Vec::with_capacity(1024);
-        let mut overflow_count = 0usize;
-
-        let stream = device.build_input_stream(
-            &config,
-            move |data: &[f32], _: &_| {
-                if !*is_recording_clone.read() {
+        let handle = std::thread::spawn(move || {
+            // Set up CPAL on this thread; the stream lives and dies here
+            let host = cpal::default_host();
+            let device = match host.default_input_device() {
+                Some(d) => d,
+                None => {
+                    let _ = ready_tx.send(Err("No input device available".to_string()));
                     return;
                 }
+            };
 
-                // Convert to mono
-                let mono_data: Vec<f32> = if channels > 1 {
-                    data.chunks(channels)
-                        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
-                        .collect()
-                } else {
-                    data.to_vec()
+            let supported_config = match device.default_input_config() {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = ready_tx.send(Err(format!("Failed to get device config: {}", e)));
+                    return;
+                }
+            };
+
+            let device_sample_rate = supported_config.sample_rate().0;
+            let channels = supported_config.channels() as usize;
+
+            println!(
+                "📊 Audio device: {} Hz, {} channels → {} Hz",
+                device_sample_rate, channels, target_sample_rate
+            );
+
+            let config: cpal::StreamConfig = supported_config.into();
+
+            // Setup resampler if needed
+            let needs_resampling = device_sample_rate != target_sample_rate;
+            let resample_ratio = target_sample_rate as f64 / device_sample_rate as f64;
+
+            let mut resampler = if needs_resampling {
+                let params = SincInterpolationParameters {
+                    sinc_len: 128,
+                    f_cutoff: 0.95,
+                    interpolation: SincInterpolationType::Linear,
+                    oversampling_factor: 128,
+                    window: WindowFunction::BlackmanHarris2,
                 };
 
-                // Handle resampling if needed
-                if let Some(ref mut resampler) = resampler {
-                    input_buffer.extend(mono_data);
+                match SincFixedIn::<f32>::new(resample_ratio, 2.0, params, 1024, 1) {
+                    Ok(r) => Some(r),
+                    Err(e) => {
+                        let _ = ready_tx.send(Err(format!("Failed to create resampler: {}", e)));
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
 
-                    while input_buffer.len() >= 1024 {
-                        let input_chunk: Vec<f32> = input_buffer.drain(..1024).collect();
+            let mut input_buffer = Vec::with_capacity(2048);
+            let mut mono_scratch = Vec::with_capacity(2048);
+            let mut overflow_count = 0usize;
 
-                        if let Ok(resampled) = resampler.process(&[input_chunk], None) {
-                            for sample in &resampled[0] {
-                                if producer.try_push(*sample).is_err() {
-                                    overflow_count += 1;
-                                    if overflow_count % 10000 == 0 {
-                                        eprintln!(
-                                            "⚠️ Audio buffer overflow: {} samples dropped",
-                                            overflow_count
-                                        );
+            // The audio producer is not Send; but it's fine to move into the closure via move
+            let mut producer = producer;
+
+            let stream = match device.build_input_stream(
+                &config,
+                move |data: &[f32], _: &_| {
+                    if !*is_recording_clone.read() {
+                        return;
+                    }
+
+                    // Convert to mono into a reusable scratch buffer
+                    mono_scratch.clear();
+                    if channels > 1 {
+                        mono_scratch.reserve(data.len() / channels);
+                        for frame in data.chunks(channels) {
+                            let sum: f32 = frame.iter().copied().sum();
+                            mono_scratch.push(sum / channels as f32);
+                        }
+                    } else {
+                        mono_scratch.extend_from_slice(data);
+                    }
+
+                    // Handle resampling if needed
+                    if let Some(ref mut resampler) = resampler {
+                        input_buffer.extend_from_slice(&mono_scratch);
+
+                        while input_buffer.len() >= 1024 {
+                            let input_chunk: Vec<f32> = input_buffer.drain(..1024).collect();
+
+                            if let Ok(resampled) = resampler.process(&[input_chunk], None) {
+                                for &sample in &resampled[0] {
+                                    if producer.try_push(sample).is_err() {
+                                        overflow_count += 1;
+                                        if overflow_count % 10000 == 0 {
+                                            eprintln!(
+                                                "⚠️ Audio buffer overflow: {} samples dropped",
+                                                overflow_count
+                                            );
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                } else {
-                    // No resampling needed, direct copy
-                    for sample in mono_data {
-                        if producer.try_push(sample).is_err() {
-                            overflow_count += 1;
-                            if overflow_count % 10000 == 0 {
-                                eprintln!(
-                                    "⚠️ Audio buffer overflow: {} samples dropped",
-                                    overflow_count
-                                );
+                    } else {
+                        // No resampling needed, direct copy
+                        for &sample in &mono_scratch {
+                            if producer.try_push(sample).is_err() {
+                                overflow_count += 1;
+                                if overflow_count % 10000 == 0 {
+                                    eprintln!(
+                                        "⚠️ Audio buffer overflow: {} samples dropped",
+                                        overflow_count
+                                    );
+                                }
                             }
                         }
                     }
+                },
+                |err| eprintln!("❌ Audio stream error: {}", err),
+                None,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    let _ = ready_tx.send(Err(format!("Failed to build stream: {}", e)));
+                    return;
                 }
-            },
-            |err| eprintln!("❌ Audio stream error: {}", err),
-            None,
-        )
-        .map_err(|e| VoicyError::AudioInitFailed(format!("Failed to build stream: {}", e)))?;
+            };
 
-        stream
-            .play()
-            .map_err(|e| VoicyError::AudioInitFailed(format!("Failed to start stream: {}", e)))?;
+            if let Err(e) = stream.play() {
+                let _ = ready_tx.send(Err(format!("Failed to start stream: {}", e)));
+                return;
+            }
 
-        // Keep stream alive for program duration by leaking it (CoreAudio stream is !Send)
-        let _leaked_stream: &'static mut cpal::Stream = Box::leak(Box::new(stream));
+            // Signal ready and keep the stream alive until stop signal
+            let _ = ready_tx.send(Ok(()));
+            // Keep stream in scope until stop signal is received
+            let _ = stop_rx.recv();
+            drop(stream);
+        });
+
+        // Wait for the audio thread to confirm readiness
+        match ready_rx.recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(VoicyError::AudioInitFailed(e)),
+            Err(e) => return Err(VoicyError::AudioInitFailed(format!("Audio thread error: {}", e))),
+        }
 
         Ok(Self {
             consumer: Arc::new(parking_lot::Mutex::new(consumer)),
             is_recording,
             sample_rate: target_sample_rate,
+            _thread: Arc::new(AudioThread { stop_tx: parking_lot::Mutex::new(Some(stop_tx)), handle: parking_lot::Mutex::new(Some(handle)) }),
         })
     }
 
@@ -193,6 +256,7 @@ impl Clone for AudioCapture {
             consumer: Arc::clone(&self.consumer),
             is_recording: Arc::clone(&self.is_recording),
             sample_rate: self.sample_rate,
+            _thread: Arc::clone(&self._thread),
         }
     }
 }
@@ -266,27 +330,27 @@ impl Transcriber {
         Ok(())
     }
 
-    pub fn process_audio(&self, audio: Vec<f32>) -> VoicyResult<String> {
+    pub fn process_audio(&self, audio: &[f32]) -> VoicyResult<()> {
         // Accumulate audio; Swift side is batch-only for now
         let mut buffer = self.audio_buffer.lock();
-        let max_amp = audio.iter().map(|&x| x.abs()).fold(0.0f32, f32::max);
+        let max_amp = audio.iter().copied().map(f32::abs).fold(0.0f32, f32::max);
         if max_amp > 1.5 {
             let scale = 0.99 / max_amp;
-            for sample in audio.iter() {
+            buffer.reserve(audio.len());
+            for &sample in audio.iter() {
                 buffer.push(sample * scale);
             }
         } else {
-            buffer.extend_from_slice(&audio);
+            buffer.extend_from_slice(audio);
         }
-        Ok(String::new())
+        Ok(())
     }
 
     pub fn end_session(&self) -> VoicyResult<String> {
         let audio = {
             let mut buffer = self.audio_buffer.lock();
-            let audio = buffer.clone();
-            buffer.clear();
-            audio
+            // Move out accumulated audio without cloning
+            std::mem::take(&mut *buffer)
         };
 
         if audio.is_empty() {
@@ -380,7 +444,7 @@ impl AudioProcessor {
                 );
                 if let Some(ref transcriber) = self.transcriber {
                     transcriber.start_session()?;
-                    let _ = transcriber.process_audio(self.audio_buffer.clone())?;
+                    transcriber.process_audio(&self.audio_buffer)?;
                     let final_text = transcriber.end_session()?;
                     return Ok(final_text.trim().to_string());
                 }

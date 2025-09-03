@@ -66,7 +66,7 @@ impl AppController {
         std::thread::spawn(move || {
             println!("🔄 Controller started");
             loop {
-                match receiver.recv_timeout(Duration::from_millis(50)) {
+                match receiver.recv() {
                     Ok(event) => {
                         if let Err(e) = Self::handle_event(
                             &state,
@@ -79,10 +79,7 @@ impl AppController {
                             eprintln!("❌ Failed to handle event: {}", e);
                         }
                     }
-                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                        // No periodic streaming tasks
-                    }
-                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                    Err(_) => {
                         eprintln!("⚠️ Event channel disconnected, controller stopping");
                         break;
                     }

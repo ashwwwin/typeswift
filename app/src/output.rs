@@ -149,15 +149,16 @@ impl TypingQueue {
         }
         
         if let Some(ref sender) = self.sender {
-            // Send to worker thread (non-blocking)
-            sender.send(TypingCommand::Type { text: text.clone(), add_space })
+            // Capture length for logging before moving text
+            let text_len = text.len();
+            sender
+                .send(TypingCommand::Type { text, add_space })
                 .map_err(|e| VoicyError::WindowOperationFailed(
                     format!("Typing worker disconnected: {}", e)
                 ))?;
-            
-            // Log for debugging (remove excessive logging from worker)
-            if !text.is_empty() {
-                println!("💬 Queued: \"{}\"", text);
+
+            if text_len > 0 {
+                println!("💬 Queued typing ({} chars)", text_len);
             }
         } else {
             // Main thread mode - execute directly with cached Enigo

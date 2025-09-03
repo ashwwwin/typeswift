@@ -1,4 +1,6 @@
 use std::sync::mpsc::Sender;
+use once_cell::sync::Lazy;
+use parking_lot::Mutex as ParkingMutex;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_float, c_int};
 
@@ -13,52 +15,46 @@ unsafe extern "C" {
     fn swift_register_preferences_callback(callback: extern "C" fn());
 }
 
-static mut PUSH_TO_TALK_SENDER: Option<Sender<HotkeyEvent>> = None;
-static mut PREFERENCES_SENDER: Option<Sender<HotkeyEvent>> = None;
+static PUSH_TO_TALK_SENDER: Lazy<ParkingMutex<Option<Sender<HotkeyEvent>>>> = Lazy::new(|| ParkingMutex::new(None));
+static PREFERENCES_SENDER: Lazy<ParkingMutex<Option<Sender<HotkeyEvent>>>> = Lazy::new(|| ParkingMutex::new(None));
 
 pub fn init_keyboard_monitor() -> bool {
     unsafe { swift_init_keyboard_monitor() }
 }
 
 pub fn shutdown_keyboard_monitor() {
-    unsafe {
-        swift_shutdown_keyboard_monitor();
-        PUSH_TO_TALK_SENDER = None;
-    }
+    unsafe { swift_shutdown_keyboard_monitor(); }
+    PUSH_TO_TALK_SENDER.lock().take();
 }
 
 pub fn register_push_to_talk_callback(sender: Sender<HotkeyEvent>) {
-    unsafe {
-        PUSH_TO_TALK_SENDER = Some(sender);
-        swift_register_push_to_talk_callback(handle_push_to_talk_event);
+    {
+        *PUSH_TO_TALK_SENDER.lock() = Some(sender);
     }
+    unsafe { swift_register_push_to_talk_callback(handle_push_to_talk_event) };
 }
 
 extern "C" fn handle_push_to_talk_event(is_pressed: bool) {
-    unsafe {
-        if let Some(ref sender) = PUSH_TO_TALK_SENDER {
-            let event = if is_pressed {
-                HotkeyEvent::PushToTalkPressed
-            } else {
-                HotkeyEvent::PushToTalkReleased
-            };
-            let _ = sender.send(event);
-        }
+    if let Some(ref sender) = *PUSH_TO_TALK_SENDER.lock() {
+        let event = if is_pressed {
+            HotkeyEvent::PushToTalkPressed
+        } else {
+            HotkeyEvent::PushToTalkReleased
+        };
+        let _ = sender.send(event);
     }
 }
 
 pub fn register_preferences_callback(sender: Sender<HotkeyEvent>) {
-    unsafe {
-        PREFERENCES_SENDER = Some(sender);
-        swift_register_preferences_callback(handle_open_preferences);
+    {
+        *PREFERENCES_SENDER.lock() = Some(sender);
     }
+    unsafe { swift_register_preferences_callback(handle_open_preferences) };
 }
 
 extern "C" fn handle_open_preferences() {
-    unsafe {
-        if let Some(ref sender) = PREFERENCES_SENDER {
-            let _ = sender.send(HotkeyEvent::OpenPreferences);
-        }
+    if let Some(ref sender) = *PREFERENCES_SENDER.lock() {
+        let _ = sender.send(HotkeyEvent::OpenPreferences);
     }
 }
 

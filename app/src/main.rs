@@ -296,9 +296,7 @@ fn main() {
     let config_clone = config.clone();
 
     // Set environment variable to hide dock icon
-    unsafe {
-        std::env::set_var("GPUI_HIDE_DOCK", "1");
-    }
+    std::env::set_var("GPUI_HIDE_DOCK", "1");
 
     Application::new().run(move |cx: &mut App| {
         // Initialize menu bar and hide dock icon AFTER GPUI starts
