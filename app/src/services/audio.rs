@@ -15,7 +15,7 @@ pub struct AudioCapture {
     consumer: Arc<parking_lot::Mutex<HeapCons<f32>>>,
     is_recording: Arc<RwLock<bool>>,
     sample_rate: u32,
-    _thread: Arc<AudioThread>,
+    thread: parking_lot::Mutex<Option<AudioThread>>, // Spawned only while recording
 }
 
 struct AudioThread {
@@ -43,13 +43,31 @@ pub struct AudioReader {
 
 impl AudioCapture {
     pub fn new(target_sample_rate: u32) -> VoicyResult<Self> {
-        // Create ring buffer with sufficient size
-        let ring_buffer_size = target_sample_rate as usize * 30; // 30 seconds buffer
+        // Create an empty ring buffer; the active session buffer will be created on start
+        let rb = HeapRb::<f32>::new(target_sample_rate as usize); // minimal buffer
+        let (_producer_unused, consumer) = rb.split();
+        let is_recording = Arc::new(RwLock::new(false));
+        Ok(Self {
+            consumer: Arc::new(parking_lot::Mutex::new(consumer)),
+            is_recording,
+            sample_rate: target_sample_rate,
+            thread: parking_lot::Mutex::new(None),
+        })
+    }
+
+    pub fn start_recording(&mut self) -> VoicyResult<()> {
+        // Fresh ring buffer per session (30s at target rate)
+        let ring_buffer_size = self.sample_rate as usize * 30;
         let rb = HeapRb::<f32>::new(ring_buffer_size);
         let (producer, consumer) = rb.split();
+        // Swap in the new consumer for this session
+        let new_cons = Arc::new(parking_lot::Mutex::new(consumer));
+        self.consumer = new_cons;
 
-        let is_recording = Arc::new(RwLock::new(false));
-        let is_recording_clone = is_recording.clone();
+        *self.is_recording.write() = true;
+
+        let is_recording_clone = self.is_recording.clone();
+        let target_sample_rate = self.sample_rate;
 
         // Channel to keep the stream thread alive and signal shutdown
         let (stop_tx, stop_rx) = channel::<()>();
@@ -194,27 +212,27 @@ impl AudioCapture {
 
         // Wait for the audio thread to confirm readiness
         match ready_rx.recv() {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => return Err(VoicyError::AudioInitFailed(e)),
-            Err(e) => return Err(VoicyError::AudioInitFailed(format!("Audio thread error: {}", e))),
+            Ok(Ok(())) => {
+                *self.thread.lock() = Some(AudioThread { stop_tx: parking_lot::Mutex::new(Some(stop_tx)), handle: parking_lot::Mutex::new(Some(handle)) });
+                info!("Audio capture started");
+                Ok(())
+            }
+            Ok(Err(e)) => Err(VoicyError::AudioInitFailed(e)),
+            Err(e) => Err(VoicyError::AudioInitFailed(format!("Audio thread error: {}", e))),
         }
-
-        Ok(Self {
-            consumer: Arc::new(parking_lot::Mutex::new(consumer)),
-            is_recording,
-            sample_rate: target_sample_rate,
-            _thread: Arc::new(AudioThread { stop_tx: parking_lot::Mutex::new(Some(stop_tx)), handle: parking_lot::Mutex::new(Some(handle)) }),
-        })
     }
 
-    pub fn start_recording(&self) -> VoicyResult<()> {
-        *self.is_recording.write() = true;
-        info!("Audio capture started");
-        Ok(())
-    }
-
-    pub fn stop_recording(&self) -> VoicyResult<()> {
+    pub fn stop_recording(&mut self) -> VoicyResult<()> {
         *self.is_recording.write() = false;
+        // Stop and join the active stream thread, if any
+        if let Some(mut th) = self.thread.get_mut().take() {
+            if let Some(tx) = th.stop_tx.lock().take() {
+                let _ = tx.send(());
+            }
+            if let Some(handle) = th.handle.lock().take() {
+                let _ = handle.join();
+            }
+        }
         info!("Audio capture stopped");
         Ok(())
     }
@@ -257,7 +275,7 @@ impl Clone for AudioCapture {
             consumer: Arc::clone(&self.consumer),
             is_recording: Arc::clone(&self.is_recording),
             sample_rate: self.sample_rate,
-            _thread: Arc::clone(&self._thread),
+            thread: parking_lot::Mutex::new(None),
         }
     }
 }
@@ -419,7 +437,7 @@ impl AudioProcessor {
             self.initialize()?;
         }
         self.audio_buffer.clear();
-        if let Some(ref capture) = self.audio_capture {
+        if let Some(ref mut capture) = self.audio_capture {
             capture.start_recording()?;
         }
         // Streaming removed: batch mode only
@@ -427,7 +445,7 @@ impl AudioProcessor {
     }
 
     pub fn stop_recording(&mut self) -> VoicyResult<String> {
-        if let Some(ref capture) = self.audio_capture {
+        if let Some(ref mut capture) = self.audio_capture {
             capture.stop_recording()?;
             self.audio_buffer.clear();
             loop {

@@ -318,7 +318,7 @@ impl Render for PreferencesView {
                     .pt(px(5.0))
                     .justify_end()
                     .text_color(rgb(0x596678))
-                    .child(div().text_xs().child("Typeswift"))
+                    .child(div().text_xs().child("ashwwwin/typeswift"))
             )
             .child(typing_row)
             .child(add_space_row)
@@ -376,6 +376,7 @@ fn main() {
             }
         });
 
+        // Use configured size for the status window (not fixed)
         let window_size = size(
             px(config_clone.ui.window_width),
             px(config_clone.ui.window_height),
@@ -490,11 +491,8 @@ fn main() {
                             let prefs_open_for_view = prefs_open_for_view.clone();
                             let hk_for_update = hotkey_handler_for_prefs_outer.clone();
                             let _ = cx.update(|cx| {
-                                let bounds = Bounds::centered(
-                                    None,
-                                    size(px(320.0), px(220.0)),
-                                    cx,
-                                );
+                                // Preferences window fixed size (320x203)
+                                let bounds = Bounds::centered(None, size(px(320.0), px(203.0)), cx);
                                 let handle_holder_outer: std::sync::Arc<std::sync::Mutex<Option<gpui::WindowHandle<PreferencesView>>>> =
                                     std::sync::Arc::new(std::sync::Mutex::new(None));
                                 let holder_for_create = handle_holder_outer.clone();

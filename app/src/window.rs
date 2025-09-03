@@ -4,6 +4,7 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 
 use cocoa::base::{id, nil};
+use cocoa::foundation::NSSize;
 use cocoa::appkit::NSApp;
 use dispatch::Queue;
 use objc::{msg_send, sel, sel_impl};
@@ -144,6 +145,8 @@ fn setup_window_properties_macos() -> VoicyResult<()> {
             let style_mask: i64 = msg_send![window, styleMask];
             let new_style = style_mask & !8; // Remove NSWindowStyleMaskResizable
             let _: () = msg_send![window, setStyleMask:new_style];
+
+            // Leave status window size as provided by GPUI/config (no fixed constraints here)
             
             // Ensure window stays on all spaces/desktops
             let collection_behavior: i64 = 1 << 0 | 1 << 8; // NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorStationary
@@ -244,6 +247,18 @@ fn focus_preferences_window_macos() -> VoicyResult<()> {
             const NS_FLOATING_WINDOW_LEVEL: i64 = 3;
             let is_floating = level == NS_FLOATING_WINDOW_LEVEL;
             if has_title && !is_floating {
+                // Constrain preferences window size and disable green zoom
+                let new_style = style_mask & !8; // Remove NSWindowStyleMaskResizable
+                let _: () = msg_send![window, setStyleMask:new_style];
+                let min = NSSize { width: 320.0, height: 203.0 };
+                let _: () = msg_send![window, setContentMinSize: min];
+                let _: () = msg_send![window, setContentMaxSize: min];
+                let _: () = msg_send![window, setContentSize: min];
+                let zoom_btn: id = msg_send![window, standardWindowButton: 2u64 /* NSWindowZoomButton */];
+                if zoom_btn != nil {
+                    let _: () = msg_send![zoom_btn, setHidden: true];
+                    let _: () = msg_send![zoom_btn, setEnabled: false];
+                }
                 // Bring to front and make key
                 let _: () = msg_send![window, makeKeyAndOrderFront:nil];
                 // Activate the app to ensure visibility
