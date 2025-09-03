@@ -144,14 +144,43 @@ import ServiceManagement
         High-performance local speech recognition for macOS.
         """
         alert.alertStyle = .informational
-        // Prefer the application icon if available; fall back to an SF Symbol
-        if let appIcon = NSImage(named: "NSApplicationIcon") ?? NSApplication.shared.applicationIconImage {
+        // Prefer custom logo/menubar PNGs (works in cargo run and bundled apps)
+        if let logo = findAssetImage(fileNames: ["logo.png"]) ?? findAssetImage(fileNames: ["menubar.png"]) {
+            alert.icon = logo
+        } else if let appIcon = NSImage(named: "NSApplicationIcon") ?? NSApplication.shared.applicationIconImage {
             alert.icon = appIcon
         } else if let symbol = NSImage(systemSymbolName: "mic.circle.fill", accessibilityDescription: "Typeswift") {
             alert.icon = symbol
         }
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    /// Locate an image by trying common dev and bundle paths (supports `cargo run`).
+    private func findAssetImage(fileNames: [String]) -> NSImage? {
+        let fm = FileManager.default
+        for name in fileNames {
+            // 1) App bundle Resources
+            if let base = (name as NSString).deletingPathExtension as String?,
+               let ext = (name as NSString).pathExtension as String?,
+               let url = Bundle.main.url(forResource: base, withExtension: ext),
+               let img = NSImage(contentsOf: url) { return img }
+            // 2) Contents/Resources
+            let resURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(name)")
+            if fm.fileExists(atPath: resURL.path), let img = NSImage(contentsOf: resURL) { return img }
+            // 3) Executable directory
+            if let exe = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent(name),
+               fm.fileExists(atPath: exe.path), let img = NSImage(contentsOf: exe) { return img }
+            // 4) Current working directory
+            let cwdURL = URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent(name)
+            if fm.fileExists(atPath: cwdURL.path), let img = NSImage(contentsOf: cwdURL) { return img }
+            // 5) Environment override root
+            if let root = ProcessInfo.processInfo.environment["TYPESWIFT_ASSETS"] {
+                let p = URL(fileURLWithPath: root).appendingPathComponent(name)
+                if fm.fileExists(atPath: p.path), let img = NSImage(contentsOf: p) { return img }
+            }
+        }
+        return nil
     }
     
     
