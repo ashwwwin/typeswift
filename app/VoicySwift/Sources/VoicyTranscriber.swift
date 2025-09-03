@@ -43,7 +43,12 @@ import FluidAudio
                             print("✅ Models loaded from: \(path)")
                         } else {
                             // Check common local paths first
-                            let possiblePaths = [
+                            // Optional override via env var: TYPESWIFT_MODELS=/path/to/model_dir
+                            var possiblePaths: [URL] = []
+                            if let envRoot = ProcessInfo.processInfo.environment["TYPESWIFT_MODELS"], !envRoot.isEmpty {
+                                possiblePaths.append(URL(fileURLWithPath: envRoot))
+                            }
+                            possiblePaths.append(contentsOf: [
                                 // User's home directory
                                 FileManager.default.homeDirectoryForCurrentUser
                                     .appendingPathComponent(".typeswift/models/parakeet-tdt-0.6b-v3-coreml"),
@@ -55,10 +60,8 @@ import FluidAudio
                                     .appendingPathComponent("Typeswift/models/parakeet-tdt-0.6b-v3-coreml"),
                                 // Backward compatibility
                                 FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-                                    .appendingPathComponent("Voicy/models/parakeet-tdt-0.6b-v3-coreml"),
-                                // Development path
-                                URL(fileURLWithPath: "/Users/mac/Desktop/voicy/parakeet-tdt-0.6b-v3-coreml")
-                            ].compactMap { $0 }
+                                    .appendingPathComponent("Voicy/models/parakeet-tdt-0.6b-v3-coreml")
+                            ].compactMap { $0 })
                             
                             var loadedModels: AsrModels? = nil
                             for possiblePath in possiblePaths {

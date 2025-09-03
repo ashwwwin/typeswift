@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import UserNotifications
 import ServiceManagement
 
 /// Menu bar controller for Typeswift
@@ -423,11 +424,15 @@ import ServiceManagement
     /// Show notification
     @objc public func showNotification(title: String, text: String) {
         DispatchQueue.main.async {
-            let notification = NSUserNotification()
-            notification.title = title
-            notification.informativeText = text
-            notification.soundName = NSUserNotificationDefaultSoundName
-            NSUserNotificationCenter.default.deliver(notification)
+            let center = UNUserNotificationCenter.current()
+            // Request authorization lazily (no-op if already granted/denied)
+            center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = text
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
+            center.add(request, withCompletionHandler: nil)
         }
     }
     
