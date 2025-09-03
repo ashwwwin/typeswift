@@ -11,7 +11,7 @@ fn main() {
     // Build the Swift package
     let output = Command::new("swift")
         .current_dir(&swift_dir)
-        .args(&["build", "-c", "release", "--product", "VoicySwift"])
+        .args(&["build", "-c", "release", "--product", "TypeswiftSwift"])
         .output()
         .expect("Failed to build Swift library");
     
@@ -27,7 +27,7 @@ fn main() {
     
     // Link the Swift library
     println!("cargo:rustc-link-search=native={}", build_dir.display());
-    println!("cargo:rustc-link-lib=dylib=VoicySwift");
+    println!("cargo:rustc-link-lib=dylib=TypeswiftSwift");
     
     // Link Swift runtime and system frameworks
     println!("cargo:rustc-link-lib=framework=Foundation");

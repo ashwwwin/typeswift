@@ -4,12 +4,12 @@ private var pushToTalkCallback: ((Bool) -> Void)?
 
 @_cdecl("swift_init_keyboard_monitor")
 public func swift_init_keyboard_monitor() -> Bool {
-    return VoicyKeyboardMonitor.initializeKeyboardMonitor()
+    return TypeswiftKeyboardMonitor.initializeKeyboardMonitor()
 }
 
 @_cdecl("swift_shutdown_keyboard_monitor")
 public func swift_shutdown_keyboard_monitor() {
-    VoicyKeyboardMonitor.shutdownKeyboardMonitor()
+    TypeswiftKeyboardMonitor.shutdownKeyboardMonitor()
 }
 
 @_cdecl("swift_register_push_to_talk_callback")
@@ -20,7 +20,7 @@ public func swift_register_push_to_talk_callback(callback: @escaping @convention
     
     // Register for notifications
     NotificationCenter.default.addObserver(
-        forName: NSNotification.Name("VoicyPushToTalkPressed"),
+        forName: NSNotification.Name("TypeswiftPushToTalkPressed"),
         object: nil,
         queue: .main
     ) { _ in
@@ -28,7 +28,7 @@ public func swift_register_push_to_talk_callback(callback: @escaping @convention
     }
     
     NotificationCenter.default.addObserver(
-        forName: NSNotification.Name("VoicyPushToTalkReleased"),
+        forName: NSNotification.Name("TypeswiftPushToTalkReleased"),
         object: nil,
         queue: .main
     ) { _ in

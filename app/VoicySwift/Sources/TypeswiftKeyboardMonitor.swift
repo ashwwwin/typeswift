@@ -2,14 +2,14 @@ import Foundation
 import AppKit
 import Carbon
 
-@objc public class VoicyKeyboardMonitor: NSObject {
+@objc public class TypeswiftKeyboardMonitor: NSObject {
     
     private var eventMonitor: Any?
     private var flagsMonitor: Any?
     private var isRecording = false
     private var lastModifierFlags: NSEvent.ModifierFlags = []
     
-    @objc public static let shared = VoicyKeyboardMonitor()
+    @objc public static let shared = TypeswiftKeyboardMonitor()
     
     private override init() {
         super.init()
@@ -60,7 +60,7 @@ import Carbon
                 // Post notification to Rust side
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(
-                        name: NSNotification.Name("VoicyPushToTalkPressed"),
+                        name: NSNotification.Name("TypeswiftPushToTalkPressed"),
                         object: nil
                     )
                 }
@@ -74,7 +74,7 @@ import Carbon
                 // Post notification to Rust side
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(
-                        name: NSNotification.Name("VoicyPushToTalkReleased"),
+                        name: NSNotification.Name("TypeswiftPushToTalkReleased"),
                         object: nil
                     )
                 }
@@ -106,7 +106,7 @@ import Carbon
             eventsOfInterest: CGEventMask(1 << CGEventType.flagsChanged.rawValue),
             callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
                 guard let refcon = refcon else { return Unmanaged.passRetained(event) }
-                let monitor = Unmanaged<VoicyKeyboardMonitor>.fromOpaque(refcon).takeUnretainedValue()
+                let monitor = Unmanaged<TypeswiftKeyboardMonitor>.fromOpaque(refcon).takeUnretainedValue()
                 monitor.handleCGEvent(event)
                 return Unmanaged.passRetained(event)
             },
@@ -137,7 +137,7 @@ import Carbon
             
             DispatchQueue.main.async {
                 NotificationCenter.default.post(
-                    name: NSNotification.Name("VoicyPushToTalkPressed"),
+                    name: NSNotification.Name("TypeswiftPushToTalkPressed"),
                     object: nil
                 )
             }
@@ -147,7 +147,7 @@ import Carbon
             
             DispatchQueue.main.async {
                 NotificationCenter.default.post(
-                    name: NSNotification.Name("VoicyPushToTalkReleased"),
+                    name: NSNotification.Name("TypeswiftPushToTalkReleased"),
                     object: nil
                 )
             }
@@ -156,7 +156,7 @@ import Carbon
 }
 
 // Extension to make the keyboard monitor accessible from Rust FFI
-@objc public extension VoicyKeyboardMonitor {
+@objc public extension TypeswiftKeyboardMonitor {
     
     @objc static func initializeKeyboardMonitor() -> Bool {
         // Try CGEvent monitoring first (more reliable for fn key)

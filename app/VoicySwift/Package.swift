@@ -2,15 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "VoicySwift",
+    name: "TypeswiftSwift",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .library(
-            name: "VoicySwift",
+            name: "TypeswiftSwift",
             type: .dynamic,
-            targets: ["VoicySwift"]
+            targets: ["TypeswiftSwift"]
         ),
     ],
     dependencies: [
@@ -18,7 +18,7 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "VoicySwift",
+            name: "TypeswiftSwift",
             dependencies: [
                 .product(name: "FluidAudio", package: "FluidAudio")
             ],

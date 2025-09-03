@@ -1,29 +1,29 @@
 // Use the library crate modules
 
-use voicy::config::Config;
+use typeswift::config::Config;
 use gpui::{
     div, point, prelude::*, px, rgb, size, App, Application, Bounds, Context, Window, WindowBounds,
     WindowOptions, Timer,
 };
-use voicy::input::{HotkeyEvent, HotkeyHandler};
-use voicy::controller::AppController;
-use voicy::state::{AppStateManager, RecordingState};
+use typeswift::input::{HotkeyEvent, HotkeyHandler};
+use typeswift::controller::AppController;
+use typeswift::state::{AppStateManager, RecordingState};
 // use std::sync::{Arc, Mutex};
-use voicy::window::WindowManager;
+use typeswift::window::WindowManager;
 use crossbeam_channel::bounded;
 #[cfg(target_os = "macos")]
-use voicy::platform::macos::ffi as menubar_ffi;
+use typeswift::platform::macos::ffi as menubar_ffi;
 
 struct TypeswiftView {
     state: AppStateManager,
-    config: std::sync::Arc<parking_lot::RwLock<voicy::config::Config>>,
+    config: std::sync::Arc<parking_lot::RwLock<typeswift::config::Config>>,
 }
 
 struct PreferencesView {
-    config: std::sync::Arc<parking_lot::RwLock<voicy::config::Config>>,
+    config: std::sync::Arc<parking_lot::RwLock<typeswift::config::Config>>,
     open_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     handle_holder: std::sync::Arc<std::sync::Mutex<Option<gpui::WindowHandle<PreferencesView>>>>,
-    hotkeys: std::sync::Arc<std::sync::Mutex<voicy::input::HotkeyHandler>>,
+    hotkeys: std::sync::Arc<std::sync::Mutex<typeswift::input::HotkeyHandler>>,
     capture_focus: gpui::FocusHandle,
     capturing_ptt: bool,
     rev: u64,
@@ -93,7 +93,7 @@ impl Render for PreferencesView {
 
         // Query launch at login status (macOS only)
         #[cfg(target_os = "macos")]
-        let launch_enabled = voicy::platform::macos::ffi::MenuBarController::is_launch_at_login_enabled();
+        let launch_enabled = typeswift::platform::macos::ffi::MenuBarController::is_launch_at_login_enabled();
         #[cfg(not(target_os = "macos"))]
         let launch_enabled = false;
 
@@ -126,7 +126,7 @@ impl Render for PreferencesView {
                     let to_save = cfg.clone();
                     drop(cfg);
                     // Save async
-                    if let Some(path) = voicy::config::Config::config_path() {
+                    if let Some(path) = typeswift::config::Config::config_path() {
                         std::thread::spawn(move || { let _ = to_save.save(path); });
                     }
                     // Re-render
@@ -163,7 +163,7 @@ impl Render for PreferencesView {
                     cfg.output.add_space_between_utterances = !cfg.output.add_space_between_utterances;
                     let to_save = cfg.clone();
                     drop(cfg);
-                    if let Some(path) = voicy::config::Config::config_path() {
+                    if let Some(path) = typeswift::config::Config::config_path() {
                         std::thread::spawn(move || { let _ = to_save.save(path); });
                     }
                     if let Some(handle) = handle_holder2.lock().unwrap().clone() {
@@ -194,8 +194,8 @@ impl Render for PreferencesView {
                         .child(if launch_enabled { "On" } else { "Off" })
                 )
                 .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
-                    let new_state = !voicy::platform::macos::ffi::MenuBarController::is_launch_at_login_enabled();
-                    voicy::platform::macos::ffi::MenuBarController::set_launch_at_login_enabled(new_state);
+                    let new_state = !typeswift::platform::macos::ffi::MenuBarController::is_launch_at_login_enabled();
+                    typeswift::platform::macos::ffi::MenuBarController::set_launch_at_login_enabled(new_state);
                     if let Some(handle) = handle_holder.lock().unwrap().clone() {
                         let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
                     }
@@ -252,7 +252,7 @@ impl Render for PreferencesView {
                         cfg.hotkeys.push_to_talk = composed.clone();
                         let to_save = cfg.clone();
                         drop(cfg);
-                        if let Some(path) = voicy::config::Config::config_path() { let _ = to_save.save(path); }
+                        if let Some(path) = typeswift::config::Config::config_path() { let _ = to_save.save(path); }
                     }
                     if let Ok(mut hk) = hk_cap.lock() {
                         let _ = hk.register_hotkeys(&cfg_arc_cap.read().hotkeys);
@@ -290,7 +290,7 @@ impl Render for PreferencesView {
                 cfg.hotkeys.push_to_talk = "fn".to_string();
                 let to_save = cfg.clone();
                 drop(cfg);
-                if let Some(path) = voicy::config::Config::config_path() { let _ = to_save.save(path); }
+                if let Some(path) = typeswift::config::Config::config_path() { let _ = to_save.save(path); }
                 if let Ok(mut hk) = hk_fn.lock() { let _ = hk.register_hotkeys(&to_save.hotkeys); }
                 // Trigger a lightweight rerender via handle if present
                 // (Preferences window updates via view.rev changes on next interactions)
@@ -433,7 +433,7 @@ fn main() {
                 move |_window, cx| {
                     let state = AppStateManager::new();
                     let config_arc = std::sync::Arc::new(parking_lot::RwLock::new(
-                        voicy::config::Config::load().unwrap_or_default(),
+                        typeswift::config::Config::load().unwrap_or_default(),
                     ));
                     cx.new(|_cx| TypeswiftView { state, config: config_arc })
                 },
@@ -528,13 +528,13 @@ fn main() {
                                 .unwrap();
                                 *handle_holder_outer.lock().unwrap() = Some(handle.clone());
                                 // Ensure the Preferences window is brought to front on first open
-                                if let Err(e) = voicy::window::WindowManager::focus_preferences() {
+                                if let Err(e) = typeswift::window::WindowManager::focus_preferences() {
                                     eprintln!("⚠️ Could not focus preferences window: {}", e);
                                 }
                             });
                         } else {
                             // Already open: bring the Preferences window to front
-                            if let Err(e) = voicy::window::WindowManager::focus_preferences() {
+                            if let Err(e) = typeswift::window::WindowManager::focus_preferences() {
                                 eprintln!("⚠️ Could not focus preferences window: {}", e);
                             }
                         }

@@ -3,13 +3,13 @@ import AppKit
 import ServiceManagement
 
 /// Menu bar controller for Typeswift
-@objc public class VoicyMenuBar: NSObject {
+@objc public class TypeswiftMenuBar: NSObject {
     
     private var statusItem: NSStatusItem?
     private var menu: NSMenu?
     
     
-    @objc public static let shared = VoicyMenuBar()
+    @objc public static let shared = TypeswiftMenuBar()
     
     private override init() {
         super.init()
@@ -79,7 +79,7 @@ import ServiceManagement
             NSApp.activate(ignoringOtherApps: true)
         }
         // Notify Rust via registered preferences callback
-        NotificationCenter.default.post(name: NSNotification.Name("VoicyOpenPreferences"), object: nil)
+        NotificationCenter.default.post(name: NSNotification.Name("TypeswiftOpenPreferences"), object: nil)
     }
     
     @objc private func showAbout() {
@@ -88,10 +88,7 @@ import ServiceManagement
         alert.informativeText = """
         Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
         
-        High-performance speech recognition for macOS.
-        Supports 25 European languages with automatic detection.
-        
-        Powered by Parakeet ASR and FluidAudio.
+        High-performance local speech recognition for macOS.
         """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
@@ -374,7 +371,7 @@ import ServiceManagement
 }
 
 // MARK: - Dock Icon Control
-extension VoicyMenuBar {
+extension TypeswiftMenuBar {
     
     /// Hide dock icon (already done via LSUIElement in Info.plist)
     @objc public func hideDockIcon() {

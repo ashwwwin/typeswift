@@ -2,14 +2,14 @@ import Foundation
 import FluidAudio
 
 /// Thread-safe transcriber for audio processing
-@objc public class VoicyTranscriber: NSObject {
+@objc public class TypeswiftTranscriber: NSObject {
     private var asrManager: AsrManager?
     private var isInitialized = false
     private let initializationQueue = DispatchQueue(label: "com.voicy.initialization")
     private let transcriptionQueue = DispatchQueue(label: "com.voicy.transcription", attributes: .concurrent)
     
     /// Singleton instance for FFI usage
-    @objc public static let shared = VoicyTranscriber()
+    @objc public static let shared = TypeswiftTranscriber()
     
     private override init() {
         super.init()

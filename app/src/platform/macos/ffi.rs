@@ -7,7 +7,7 @@ use std::os::raw::{c_char, c_float, c_int};
 // ===== Keyboard FFI =====
 use crate::input::HotkeyEvent;
 
-#[link(name = "VoicySwift")]
+#[link(name = "TypeswiftSwift")]
 unsafe extern "C" {
     fn swift_init_keyboard_monitor() -> bool;
     fn swift_shutdown_keyboard_monitor();
@@ -61,66 +61,66 @@ extern "C" fn handle_open_preferences() {
 // ===== Menubar FFI =====
 
 unsafe extern "C" {
-    fn voicy_setup_menubar();
-    fn voicy_hide_dock_icon();
-    fn voicy_show_dock_icon();
-    fn voicy_set_menu_status(text: *const c_char);
-    fn voicy_show_notification(title: *const c_char, message: *const c_char);
-    fn voicy_set_recording_state(is_recording: bool);
-    fn voicy_run_app();
-    fn voicy_terminate_app();
-    fn voicy_is_launch_at_login_enabled() -> bool;
-    fn voicy_set_launch_at_login_enabled(enabled: bool);
+    fn typeswift_setup_menubar();
+    fn typeswift_hide_dock_icon();
+    fn typeswift_show_dock_icon();
+    fn typeswift_set_menu_status(text: *const c_char);
+    fn typeswift_show_notification(title: *const c_char, message: *const c_char);
+    fn typeswift_set_recording_state(is_recording: bool);
+    fn typeswift_run_app();
+    fn typeswift_terminate_app();
+    fn typeswift_is_launch_at_login_enabled() -> bool;
+    fn typeswift_set_launch_at_login_enabled(enabled: bool);
 }
 
 pub struct MenuBarController;
 
 impl MenuBarController {
     pub fn setup() {
-        unsafe { voicy_setup_menubar() }
+        unsafe { typeswift_setup_menubar() }
     }
     pub fn hide_dock_icon() {
-        unsafe { voicy_hide_dock_icon() }
+        unsafe { typeswift_hide_dock_icon() }
     }
     pub fn show_dock_icon() {
-        unsafe { voicy_show_dock_icon() }
+        unsafe { typeswift_show_dock_icon() }
     }
     pub fn set_status(text: &str) {
         let c_text = CString::new(text).unwrap();
-        unsafe { voicy_set_menu_status(c_text.as_ptr()) }
+        unsafe { typeswift_set_menu_status(c_text.as_ptr()) }
     }
     pub fn show_notification(title: &str, message: &str) {
         let c_title = CString::new(title).unwrap();
         let c_message = CString::new(message).unwrap();
-        unsafe { voicy_show_notification(c_title.as_ptr(), c_message.as_ptr()) }
+        unsafe { typeswift_show_notification(c_title.as_ptr(), c_message.as_ptr()) }
     }
     pub fn set_recording(is_recording: bool) {
-        unsafe { voicy_set_recording_state(is_recording) }
+        unsafe { typeswift_set_recording_state(is_recording) }
     }
     pub fn run_app() {
-        unsafe { voicy_run_app() }
+        unsafe { typeswift_run_app() }
     }
     pub fn quit() {
-        unsafe { voicy_terminate_app() }
+        unsafe { typeswift_terminate_app() }
     }
     pub fn is_launch_at_login_enabled() -> bool {
-        unsafe { voicy_is_launch_at_login_enabled() }
+        unsafe { typeswift_is_launch_at_login_enabled() }
     }
     pub fn set_launch_at_login_enabled(enabled: bool) {
-        unsafe { voicy_set_launch_at_login_enabled(enabled) }
+        unsafe { typeswift_set_launch_at_login_enabled(enabled) }
     }
 
 }
 
 // ===== Swift Transcriber FFI =====
 
-#[link(name = "VoicySwift")]
+#[link(name = "TypeswiftSwift")]
 unsafe extern "C" {
-    fn voicy_init(model_path: *const c_char) -> c_int;
-    fn voicy_transcribe(samples: *const c_float, sample_count: c_int) -> *mut c_char;
-    fn voicy_free_string(str: *mut c_char);
-    fn voicy_cleanup();
-    fn voicy_is_ready() -> bool;
+    fn typeswift_init(model_path: *const c_char) -> c_int;
+    fn typeswift_transcribe(samples: *const c_float, sample_count: c_int) -> *mut c_char;
+    fn typeswift_free_string(str: *mut c_char);
+    fn typeswift_cleanup();
+    fn typeswift_is_ready() -> bool;
 }
 
 pub struct SwiftTranscriber {
@@ -138,7 +138,7 @@ impl SwiftTranscriber {
             .map(|s| s.as_ptr())
             .unwrap_or(std::ptr::null());
 
-        let result = unsafe { voicy_init(c_path) };
+        let result = unsafe { typeswift_init(c_path) };
         if result == 0 {
             self.initialized = true;
             Ok(())
@@ -154,25 +154,25 @@ impl SwiftTranscriber {
         if samples.is_empty() {
             return Ok(String::new());
         }
-        let c_str = unsafe { voicy_transcribe(samples.as_ptr() as *const c_float, samples.len() as c_int) };
+        let c_str = unsafe { typeswift_transcribe(samples.as_ptr() as *const c_float, samples.len() as c_int) };
         if c_str.is_null() {
             return Err("Transcription failed".to_string());
         }
         let result = unsafe {
             let rust_str = std::ffi::CStr::from_ptr(c_str).to_string_lossy().into_owned();
-            voicy_free_string(c_str);
+            typeswift_free_string(c_str);
             rust_str
         };
         Ok(result)
     }
 
     pub fn is_ready(&self) -> bool {
-        unsafe { voicy_is_ready() }
+        unsafe { typeswift_is_ready() }
     }
 
     pub fn cleanup(&mut self) {
         if self.initialized {
-            unsafe { voicy_cleanup() };
+            unsafe { typeswift_cleanup() };
             self.initialized = false;
         }
     }
