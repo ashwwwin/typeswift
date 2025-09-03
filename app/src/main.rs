@@ -97,12 +97,10 @@ impl Render for PreferencesView {
             div()
                 .w_full()
                 .mt(px(6.0))
-                // Horizontal + small vertical padding for the row
                 .px(px(6.0))
-                .py(px(4.0))
-                .border_b_1()
-                .border_color(rgb(0x374151))
-                
+                .pt(px(2.0))
+                .pb(px(1.0))
+                .rounded_md()
                 .hover(|s| s.bg(rgb(0x1f2937)))
                 .flex()
                 .items_center()
@@ -110,11 +108,8 @@ impl Render for PreferencesView {
                 .child(div().py(px(3.0)).child("Enable typing"))
                 .child(
                     div()
-                        .px(px(6.0))
-                        .pt(px(3.0))
-                        .pb(px(1.5))
-                        .rounded_sm()
-                        .bg(if typing_enabled { rgb(0x065f46) } else { rgb(0x7f1d1d) })
+                        // .rounded_md()
+                        .text_color(if typing_enabled { rgb(0x065f46) } else { rgb(0x7f1d1d) })
                         .child(if typing_enabled { "On" } else { "Off" })
                 )
                 .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
@@ -141,12 +136,11 @@ impl Render for PreferencesView {
             let handle_holder2 = self.handle_holder.clone();
             div()
                 .w_full()
-                // Horizontal + small vertical padding for the row
+                .mt(px(3.0))
                 .px(px(6.0))
-                .py(px(4.0))
-                .border_b_1()
-                .border_color(rgb(0x374151))
-                
+                .pt(px(2.0))
+                .pb(px(1.0))
+                .rounded_md()
                 .hover(|s| s.bg(rgb(0x1f2937)))
                 .flex()
                 .items_center()
@@ -154,11 +148,7 @@ impl Render for PreferencesView {
                 .child(div().py(px(3.0)).child("Add space between utterances"))
                 .child(
                     div()
-                        .px(px(6.0))
-                        .pt(px(3.0))
-                        .pb(px(1.5))
-                        .rounded_sm()
-                        .bg(if add_space { rgb(0x065f46) } else { rgb(0x7f1d1d) })
+                        .text_color(if add_space { rgb(0x065f46) } else { rgb(0x7f1d1d) })
                         .child(if add_space { "On" } else { "Off" })
                 )
                 .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
@@ -261,10 +251,9 @@ impl Render for PreferencesView {
                     .child(set_ptt_fn)
                     .child(set_ptt_opt_space),
             )
-            
-            .child(div().mt(px(6.0)).child(
-                "Tip: Click a row to toggle. Close this window when done.",
-            ))
+            // .child(div().mt(px(6.0)).child(
+            //     "Tip: Click a row to toggle. Close this window when done.",
+            // ))
     }
 }
 
