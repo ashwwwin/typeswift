@@ -1,6 +1,8 @@
 import Foundation
 
 private var pushToTalkCallback: ((Bool) -> Void)?
+private var pttPressedObserver: NSObjectProtocol?
+private var pttReleasedObserver: NSObjectProtocol?
 
 @_cdecl("swift_init_keyboard_monitor")
 public func swift_init_keyboard_monitor() -> Bool {
@@ -18,8 +20,12 @@ public func swift_register_push_to_talk_callback(callback: @escaping @convention
         callback(isPressed)
     }
     
-    // Register for notifications
-    NotificationCenter.default.addObserver(
+    let center = NotificationCenter.default
+    // Remove existing observers to avoid duplicates
+    if let o = pttPressedObserver { center.removeObserver(o) }
+    if let o = pttReleasedObserver { center.removeObserver(o) }
+    
+    pttPressedObserver = center.addObserver(
         forName: NSNotification.Name("TypeswiftPushToTalkPressed"),
         object: nil,
         queue: .main
@@ -27,7 +33,7 @@ public func swift_register_push_to_talk_callback(callback: @escaping @convention
         pushToTalkCallback?(true)
     }
     
-    NotificationCenter.default.addObserver(
+    pttReleasedObserver = center.addObserver(
         forName: NSNotification.Name("TypeswiftPushToTalkReleased"),
         object: nil,
         queue: .main

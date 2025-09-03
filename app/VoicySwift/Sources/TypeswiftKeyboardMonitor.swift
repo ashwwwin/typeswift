@@ -6,6 +6,9 @@ import Carbon
     
     private var eventMonitor: Any?
     private var flagsMonitor: Any?
+    private var eventTap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
+    private var isMonitoring: Bool = false
     private var isRecording = false
     private var lastModifierFlags: NSEvent.ModifierFlags = []
     
@@ -16,6 +19,8 @@ import Carbon
     }
     
     @objc public func startMonitoring() {
+        if isMonitoring { return }
+        isMonitoring = true
         print("Starting keyboard monitoring for fn key")
         
         // Monitor modifier flags changes (for fn key)
@@ -41,6 +46,15 @@ import Carbon
             NSEvent.removeMonitor(monitor)
             flagsMonitor = nil
         }
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+            runLoopSource = nil
+        }
+        if let tap = eventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            eventTap = nil
+        }
+        isMonitoring = false
         print("Keyboard monitoring stopped")
     }
     
@@ -86,6 +100,8 @@ import Carbon
     
     // Alternative method using CGEvent for system-wide monitoring
     @objc public func startCGEventMonitoring() -> Bool {
+        if isMonitoring { return true }
+        isMonitoring = true
         print("Starting CGEvent monitoring for fn key")
         
         // Request accessibility permissions
@@ -116,10 +132,12 @@ import Carbon
             return false
         }
         
-        // Add to run loop
-        let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+        // Add to run loop and retain for cleanup
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
         CGEvent.tapEnable(tap: eventTap, enable: true)
+        self.eventTap = eventTap
+        self.runLoopSource = source
         
         print("CGEvent monitoring started")
         return true

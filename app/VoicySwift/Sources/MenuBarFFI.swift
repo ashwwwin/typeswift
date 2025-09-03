@@ -3,6 +3,7 @@ import AppKit
 
 // Preferences callback wire-up
 private var preferencesCallback: (() -> Void)?
+private var prefsObserver: NSObjectProtocol?
 
 @_cdecl("swift_register_preferences_callback")
 public func swift_register_preferences_callback(_ callback: @escaping @convention(c) () -> Void) {
@@ -10,7 +11,9 @@ public func swift_register_preferences_callback(_ callback: @escaping @conventio
         callback()
     }
     // Register for Preferences notifications from the menu
-    NotificationCenter.default.addObserver(
+    let center = NotificationCenter.default
+    if let o = prefsObserver { center.removeObserver(o) }
+    prefsObserver = center.addObserver(
         forName: NSNotification.Name("TypeswiftOpenPreferences"),
         object: nil,
         queue: .main

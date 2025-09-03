@@ -35,6 +35,9 @@ struct PreferencesView {
 impl Drop for PreferencesView {
     fn drop(&mut self) {
         self.open_flag.store(false, std::sync::atomic::Ordering::SeqCst);
+        if let Ok(mut holder) = self.handle_holder.lock() {
+            *holder = None;
+        }
     }
 }
 
@@ -315,7 +318,9 @@ fn main() {
     // Initialize logging
     {
         use tracing_subscriber::{EnvFilter, fmt};
-        let _ = fmt().with_env_filter(EnvFilter::from_default_env()).try_init();
+        // Default to INFO if RUST_LOG is not set, so important logs (like memory) are visible.
+        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+        let _ = fmt().with_env_filter(filter).try_init();
     }
 
     // Load configuration

@@ -10,6 +10,7 @@ pub mod controller;
 pub mod state;
 pub mod window;
 pub mod output;
+pub mod mem;
 
 // Backward-compat shim: some modules may still refer to `crate::audio`.
 // Keep a thin module to avoid wide churn until all call sites are migrated.

@@ -9,6 +9,7 @@ use crate::platform::macos::ffi as menubar_ffi;
 use crossbeam_channel::Receiver;
 use std::sync::{Arc, Mutex};
 use tracing::{info, warn, error, debug};
+use crate::mem::current_rss_mb;
 
 /// Central controller that owns the app orchestration and processes events.
 pub struct AppController {
@@ -134,6 +135,7 @@ impl AppController {
                     let config = Arc::clone(config);
                     let state = state.clone();
                     std::thread::spawn(move || {
+                        let before_mb = current_rss_mb();
                         let final_text = if let Ok(mut audio) = audio_processor.lock() {
                             audio.stop_recording().unwrap_or_default()
                         } else {
@@ -159,6 +161,11 @@ impl AppController {
                             }
                         }
 
+                        let after_mb = current_rss_mb();
+                        if let (Some(b), Some(a)) = (before_mb, after_mb) {
+                            let delta = a - b;
+                            info!("Memory RSS before: {:.2} MB, after: {:.2} MB, delta: {:+.2} MB", b, a, delta);
+                        }
                         state.set_recording_state(RecordingState::Idle);
                         info!("Processing complete; state=Idle");
                     });
