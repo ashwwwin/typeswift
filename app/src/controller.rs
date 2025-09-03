@@ -29,7 +29,7 @@ impl AppController {
         println!("🚀 Initializing audio system...");
         if let Err(e) = audio_processor.initialize() {
             eprintln!(
-                "❌ Failed to initialize audio system: {}\n   Voicy will still start but recording won't work until model loads",
+                "❌ Failed to initialize audio system: {}\n   Typeswift will still start but recording won't work until model loads",
                 e
             );
         } else {

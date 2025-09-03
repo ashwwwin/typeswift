@@ -106,6 +106,8 @@ public func voicy_reset_first_launch() {
     // Reset first launch flags for testing
     UserDefaults.standard.removeObject(forKey: "com.voicy.hasLaunchedBefore")
     UserDefaults.standard.removeObject(forKey: "com.voicy.hasAskedAboutLogin")
+    UserDefaults.standard.removeObject(forKey: "com.typeswift.hasLaunchedBefore")
+    UserDefaults.standard.removeObject(forKey: "com.typeswift.hasAskedAboutLogin")
     UserDefaults.standard.synchronize()
     print("🔄 First launch state reset - next launch will show welcome dialog")
 }

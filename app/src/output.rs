@@ -260,7 +260,7 @@ pub fn run_typing_diagnostic() {
             
             println!("   🚀 Attempting to type...");
             
-            match enigo.text("Hello from Voicy diagnostic test!") {
+            match enigo.text("Hello from Typeswift diagnostic test!") {
                 Ok(()) => {
                     println!("   ✅ Enigo.text() returned successfully");
                     println!("   ❓ If you don't see text in your editor, it's a permissions issue");

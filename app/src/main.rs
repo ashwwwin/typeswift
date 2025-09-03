@@ -14,7 +14,7 @@ use crossbeam_channel::bounded;
 #[cfg(target_os = "macos")]
 use voicy::platform::macos::ffi as menubar_ffi;
 
-struct VoicyView {
+struct TypeswiftView {
     state: AppStateManager,
     config: std::sync::Arc<parking_lot::RwLock<voicy::config::Config>>,
 }
@@ -35,7 +35,7 @@ impl Drop for PreferencesView {
     }
 }
 
-impl Render for VoicyView {
+impl Render for TypeswiftView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         {
             // Status view
@@ -61,7 +61,7 @@ impl Render for VoicyView {
             };
 
             div()
-                .id("voicy-main")
+                .id("typeswift-main")
                 .flex()
                 .flex_col()
                 .bg(bg_color)
@@ -263,7 +263,7 @@ impl Render for PreferencesView {
             });
 
         div()
-            .id("voicy-prefs-window")
+            .id("typeswift-prefs-window")
             .flex()
             .flex_col()
             .bg(rgb(0x111827))
@@ -394,7 +394,7 @@ fn main() {
                     let config_arc = std::sync::Arc::new(parking_lot::RwLock::new(
                         voicy::config::Config::load().unwrap_or_default(),
                     ));
-                    cx.new(|_cx| VoicyView { state, config: config_arc })
+                    cx.new(|_cx| TypeswiftView { state, config: config_arc })
                 },
             )
             .unwrap();
@@ -433,7 +433,7 @@ fn main() {
 
         // Apply window properties (always-on-top, etc.)
         
-        println!("🚀 Voicy started with global shortcuts:");
+        println!("🚀 Typeswift started with global shortcuts:");
         println!(
             "   Push-to-talk: {} (hold to record)",
             config_clone.hotkeys.push_to_talk

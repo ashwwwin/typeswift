@@ -46,8 +46,14 @@ import FluidAudio
                             let possiblePaths = [
                                 // User's home directory
                                 FileManager.default.homeDirectoryForCurrentUser
+                                    .appendingPathComponent(".typeswift/models/parakeet-tdt-0.6b-v3-coreml"),
+                                // Backward compatibility
+                                FileManager.default.homeDirectoryForCurrentUser
                                     .appendingPathComponent(".voicy/models/parakeet-tdt-0.6b-v3-coreml"),
                                 // Application Support
+                                FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+                                    .appendingPathComponent("Typeswift/models/parakeet-tdt-0.6b-v3-coreml"),
+                                // Backward compatibility
                                 FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
                                     .appendingPathComponent("Voicy/models/parakeet-tdt-0.6b-v3-coreml"),
                                 // Development path
@@ -77,13 +83,13 @@ import FluidAudio
                                 
                                 // Save to Application Support for future use
                                 if let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-                                    let voicyModelsDir = appSupportURL
-                                        .appendingPathComponent("Voicy")
+                                    let modelsDir = appSupportURL
+                                        .appendingPathComponent("Typeswift")
                                         .appendingPathComponent("models")
                                     
                                     do {
-                                        try FileManager.default.createDirectory(at: voicyModelsDir, withIntermediateDirectories: true)
-                                        let targetPath = voicyModelsDir.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml")
+                                        try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+                                        let targetPath = modelsDir.appendingPathComponent("parakeet-tdt-0.6b-v3-coreml")
                                         
                                         // Copy downloaded models to Application Support
                                         if FileManager.default.fileExists(atPath: targetPath.path) {
@@ -104,7 +110,7 @@ import FluidAudio
                         // Initialize ASR Manager with models
                         try await self.asrManager?.initialize(models: models)
                         self.isInitialized = true
-                        print("✅ VoicyTranscriber initialized")
+                        print("✅ Transcriber initialized")
                         
                         continuation.resume(returning: 0)
                     } catch {
@@ -149,7 +155,7 @@ import FluidAudio
             await asrManager.cleanup()
             self.asrManager = nil
             self.isInitialized = false
-            print("🧹 VoicyTranscriber cleaned up")
+            print("🧹 Transcriber cleaned up")
         }
     }
     

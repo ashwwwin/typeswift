@@ -2,7 +2,7 @@ import Foundation
 import AppKit
 import ServiceManagement
 
-/// Menu bar controller for Voicy
+/// Menu bar controller for Typeswift
 @objc public class VoicyMenuBar: NSObject {
     
     private var statusItem: NSStatusItem?
@@ -25,7 +25,7 @@ import ServiceManagement
         // Set icon (you can use SF Symbols or custom image)
         if let button = statusItem?.button {
             // Using SF Symbol for microphone
-            button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Voicy")
+            button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Typeswift")
             button.image?.size = NSSize(width: 18, height: 18)
             button.image?.isTemplate = true // Makes it adapt to dark/light mode
             
@@ -37,7 +37,7 @@ import ServiceManagement
         menu = NSMenu()
         
         // Add menu items
-        let titleItem = NSMenuItem(title: "Voicy - Speech Recognition", action: nil, keyEquivalent: "")
+        let titleItem = NSMenuItem(title: "Typeswift - Speech Recognition", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
         menu?.addItem(titleItem)
         
@@ -62,14 +62,14 @@ import ServiceManagement
         menu?.addItem(launchAtStartupItem)
         
         // About
-        let aboutItem = NSMenuItem(title: "About Voicy", action: #selector(showAbout), keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: "About Typeswift", action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self
         menu?.addItem(aboutItem)
         
         menu?.addItem(NSMenuItem.separator())
         
         // Quit
-        let quitItem = NSMenuItem(title: "Quit Voicy", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit Typeswift", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu?.addItem(quitItem)
         
@@ -90,7 +90,7 @@ import ServiceManagement
     
     @objc private func showAbout() {
         let alert = NSAlert()
-        alert.messageText = "Voicy"
+        alert.messageText = "Typeswift"
         alert.informativeText = """
         Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0")
         
@@ -132,7 +132,7 @@ import ServiceManagement
     private func isLaunchAtStartupEnabled() -> Bool {
         // Check if launch agent exists and is loaded
         let launchAgentPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/LaunchAgents/com.voicy.app.plist")
+            .appendingPathComponent("Library/LaunchAgents/com.typeswift.app.plist")
         return FileManager.default.fileExists(atPath: launchAgentPath.path)
     }
     
@@ -175,7 +175,7 @@ import ServiceManagement
         // Create LaunchAgents directory if it doesn't exist
         try? FileManager.default.createDirectory(at: launchAgentDir, withIntermediateDirectories: true)
         
-        let launchAgentPath = launchAgentDir.appendingPathComponent("com.voicy.app.plist")
+        let launchAgentPath = launchAgentDir.appendingPathComponent("com.typeswift.app.plist")
         
         // Get the app bundle path
         let appPath = Bundle.main.bundlePath
@@ -188,7 +188,7 @@ import ServiceManagement
         <plist version="1.0">
         <dict>
             <key>Label</key>
-            <string>com.voicy.app</string>
+            <string>com.typeswift.app</string>
             <key>ProgramArguments</key>
             <array>
                 <string>\(executablePath)</string>
@@ -219,7 +219,7 @@ import ServiceManagement
     
     private func uninstallLaunchAgent() {
         let launchAgentPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/LaunchAgents/com.voicy.app.plist")
+            .appendingPathComponent("Library/LaunchAgents/com.typeswift.app.plist")
         
         if FileManager.default.fileExists(atPath: launchAgentPath.path) {
             // Unload the launch agent
@@ -244,11 +244,12 @@ import ServiceManagement
     
     private func checkFirstLaunch() {
         let defaults = UserDefaults.standard
-        let hasLaunchedBeforeKey = "com.voicy.hasLaunchedBefore"
-        let hasAskedAboutLoginKey = "com.voicy.hasAskedAboutLogin"
+        let hasLaunchedBeforeKey = "com.typeswift.hasLaunchedBefore"
+        let hasAskedAboutLoginKey = "com.typeswift.hasAskedAboutLogin"
         
-        let hasLaunchedBefore = defaults.bool(forKey: hasLaunchedBeforeKey)
-        let hasAskedAboutLogin = defaults.bool(forKey: hasAskedAboutLoginKey)
+        // Backward compatibility: also check old Voicy keys
+        let hasLaunchedBefore = defaults.bool(forKey: hasLaunchedBeforeKey) || defaults.bool(forKey: "com.voicy.hasLaunchedBefore")
+        let hasAskedAboutLogin = defaults.bool(forKey: hasAskedAboutLoginKey) || defaults.bool(forKey: "com.voicy.hasAskedAboutLogin")
         
         if !hasLaunchedBefore {
             // First time launch - show welcome
@@ -267,15 +268,15 @@ import ServiceManagement
     private func showWelcomeDialog() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let alert = NSAlert()
-            alert.messageText = "Welcome to Voicy! 🎙️"
+            alert.messageText = "Welcome to Typeswift! 🎙️"
             alert.informativeText = """
-            Voicy runs in your menu bar for quick access to speech recognition.
+            Typeswift runs in your menu bar for quick access to speech recognition.
             
             • Press and hold the hotkey to record
             • Supports 25 European languages automatically
             • Transcriptions are typed where your cursor is
             
-            Would you like Voicy to start automatically when you log in?
+            Would you like Typeswift to start automatically when you log in?
             (You can change this later in the menu)
             """
             alert.alertStyle = .informational
@@ -286,7 +287,7 @@ import ServiceManagement
             alert.addButton(withTitle: "Don't Ask Again")
             
             // Show welcome image if available
-            if let image = NSImage(systemSymbolName: "mic.circle.fill", accessibilityDescription: "Voicy") {
+            if let image = NSImage(systemSymbolName: "mic.circle.fill", accessibilityDescription: "Typeswift") {
                 alert.icon = image
             }
             
@@ -298,7 +299,7 @@ import ServiceManagement
                 self.enableLaunchAtStartup()
                 self.showNotification(
                     title: "Launch at Login Enabled",
-                    text: "Voicy will start automatically when you log in"
+                    text: "Typeswift will start automatically when you log in"
                 )
                 
                 // Update menu item if it exists
@@ -316,15 +317,15 @@ import ServiceManagement
             }
             
             // Mark that we've asked about login
-            UserDefaults.standard.set(true, forKey: "com.voicy.hasAskedAboutLogin")
+            UserDefaults.standard.set(true, forKey: "com.typeswift.hasAskedAboutLogin")
         }
     }
     
     private func askAboutLaunchAtLogin() {
         // Simpler prompt for existing users
         let alert = NSAlert()
-        alert.messageText = "Start Voicy at Login?"
-        alert.informativeText = "Would you like Voicy to start automatically when you log in? This ensures it's always ready in your menu bar."
+        alert.messageText = "Start Typeswift at Login?"
+        alert.informativeText = "Would you like Typeswift to start automatically when you log in? This ensures it's always ready in your menu bar."
         alert.alertStyle = .informational
         
         alert.addButton(withTitle: "Enable")
@@ -342,7 +343,7 @@ import ServiceManagement
             
             self.showNotification(
                 title: "Launch at Login Enabled",
-                text: "Voicy will start automatically"
+                text: "Typeswift will start automatically"
             )
         }
     }
@@ -358,7 +359,7 @@ import ServiceManagement
     @objc public func setStatusIcon(systemName: String) {
         DispatchQueue.main.async { [weak self] in
             if let button = self?.statusItem?.button {
-                button.image = NSImage(systemSymbolName: systemName, accessibilityDescription: "Voicy")
+                button.image = NSImage(systemSymbolName: systemName, accessibilityDescription: "Typeswift")
                 button.image?.isTemplate = true
             }
         }
