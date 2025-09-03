@@ -187,6 +187,7 @@ impl Render for PreferencesView {
         // Push-to-talk: capture shortcut inline
         let cfg_arc_cap = self.config.clone();
         let hk_cap = self.hotkeys.clone();
+        let handle_holder_cap = self.handle_holder.clone();
         let ptt_row = {
             let capturing_label_color = if self.capturing_ptt { rgb(0xf59e0b) } else { rgb(0x9ca3af) };
             div()
@@ -201,13 +202,18 @@ impl Render for PreferencesView {
                 .items_center()
                 .justify_between()
                 .track_focus(&self.capture_focus)
-                .on_key_down(_cx.listener(move |this, event: &gpui::KeyDownEvent, _window, _app_cx| {
+                .on_key_down(_cx.listener(move |this, event: &gpui::KeyDownEvent, _window, app_cx| {
                     if !this.capturing_ptt { return; }
                     let ks = &event.keystroke;
                     let key = ks.key.as_str();
                     if key.eq_ignore_ascii_case("escape") || key.eq_ignore_ascii_case("esc") {
                         this.capturing_ptt = false;
                         this.rev = this.rev.wrapping_add(1);
+                        if let Some(handle) = handle_holder_cap.lock().unwrap().clone() {
+                            let _ = handle.update(app_cx, |view, _w, _cx| {
+                                view.rev = view.rev.wrapping_add(1);
+                            });
+                        }
                         return;
                     }
                     if key.is_empty() { return; }
@@ -228,19 +234,30 @@ impl Render for PreferencesView {
                     if !parts.is_empty() { composed.push('+'); }
                     composed.push_str(normalized_key);
 
-                    // Persist and apply
-                    {
+                    // Update in-memory config immediately
+                    let to_save = {
                         let mut cfg = cfg_arc_cap.write();
                         cfg.hotkeys.push_to_talk = composed.clone();
-                        let to_save = cfg.clone();
-                        drop(cfg);
-                        if let Some(path) = typeswift::config::Config::config_path() { let _ = to_save.save(path); }
-                    }
-                    if let Ok(mut hk) = hk_cap.lock() {
-                        let _ = hk.register_hotkeys(&cfg_arc_cap.read().hotkeys);
-                    }
+                        cfg.clone()
+                    };
+                    // Optimistically update UI right away
                     this.capturing_ptt = false;
                     this.rev = this.rev.wrapping_add(1);
+                    if let Some(handle) = handle_holder_cap.lock().unwrap().clone() {
+                        let _ = handle.update(app_cx, |view, _w, _cx| {
+                            view.rev = view.rev.wrapping_add(1);
+                        });
+                    }
+                    // Offload I/O and hotkey re-registration so UI doesn't lag
+                    let hk_for_thread = hk_cap.clone();
+                    std::thread::spawn(move || {
+                        if let Ok(mut hk) = hk_for_thread.lock() {
+                            let _ = hk.register_hotkeys(&to_save.hotkeys);
+                        }
+                        if let Some(path) = typeswift::config::Config::config_path() {
+                            let _ = to_save.save(path);
+                        }
+                    });
                 }))
                 .on_mouse_down(gpui::MouseButton::Left, _cx.listener(|this, _event, window, _app_cx| {
                     this.capturing_ptt = true;
@@ -251,7 +268,7 @@ impl Render for PreferencesView {
                 .child(
                     div()
                         .text_color(capturing_label_color)
-                        .child(if self.capturing_ptt { "Listening… (press keys or Esc)".to_string() } else { ptt.clone() })
+                        .child(if self.capturing_ptt { "Listening (press keys or Esc)".to_string() } else { ptt.clone() })
                 )
         };
 
