@@ -7,7 +7,7 @@ use gpui::{
 };
 use typeswift::input::{HotkeyEvent, HotkeyHandler};
 use typeswift::controller::AppController;
-use typeswift::state::{AppStateManager, RecordingState};
+use typeswift::state::AppStateManager;
 // use std::sync::{Arc, Mutex};
 use typeswift::window::WindowManager;
 use crossbeam_channel::bounded;
@@ -38,26 +38,10 @@ impl Render for TypeswiftView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         {
             // Status view
-            let recording_state = self.state.get_recording_state();
-            let transcription = self.state.get_transcription();
-
-            let status_text = match recording_state {
-                RecordingState::Idle => "Ready".to_string(),
-                RecordingState::Recording => {
-                    if transcription.is_empty() {
-                        "Listening...".to_string()
-                    } else {
-                        transcription.clone()
-                    }
-                }
-                RecordingState::Processing => "Processing...".to_string(),
-            };
-
-            let bg_color = match recording_state {
-                RecordingState::Idle => rgb(0x1f2937),
-                RecordingState::Recording => rgb(0xdc2626),
-                RecordingState::Processing => rgb(0x3b82f6),
-            };
+            // Always present a neutral, "Ready" state without
+            // reflecting internal recording/processing states.
+            let status_text = "Ready".to_string();
+            let bg_color = rgb(0x1f2937);
 
             div()
                 .id("typeswift-main")
@@ -70,11 +54,7 @@ impl Render for TypeswiftView {
                 .items_center()
                 .rounded_md()
                 .border_1()
-                .border_color(match recording_state {
-                    RecordingState::Idle => rgb(0x374151),
-                    RecordingState::Recording => rgb(0xef4444),
-                    RecordingState::Processing => rgb(0x60a5fa),
-                })
+                .border_color(rgb(0x374151))
                 .text_xs()
                 .text_color(rgb(0xffffff))
                 .child(status_text)
