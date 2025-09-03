@@ -16,7 +16,7 @@ import Carbon
     }
     
     @objc public func startMonitoring() {
-        print("🎹 Starting keyboard monitoring for fn key")
+        print("Starting keyboard monitoring for fn key")
         
         // Monitor modifier flags changes (for fn key)
         flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
@@ -29,7 +29,7 @@ import Carbon
             return event
         }
         
-        print("✅ Keyboard monitoring started")
+        print("Keyboard monitoring started")
     }
     
     @objc public func stopMonitoring() {
@@ -41,7 +41,7 @@ import Carbon
             NSEvent.removeMonitor(monitor)
             flagsMonitor = nil
         }
-        print("🛑 Keyboard monitoring stopped")
+        print("Keyboard monitoring stopped")
     }
     
     private func handleFlagsChanged(_ event: NSEvent) {
@@ -55,7 +55,7 @@ import Carbon
             // fn key was just pressed
             if !isRecording {
                 isRecording = true
-                print("🎙️ Fn key PRESSED - Starting recording")
+                print("Fn key PRESSED - Starting recording")
                 
                 // Post notification to Rust side
                 DispatchQueue.main.async {
@@ -69,7 +69,7 @@ import Carbon
             // fn key was just released
             if isRecording {
                 isRecording = false
-                print("🛑 Fn key RELEASED - Stopping recording")
+                print("Fn key RELEASED - Stopping recording")
                 
                 // Post notification to Rust side
                 DispatchQueue.main.async {
@@ -86,14 +86,14 @@ import Carbon
     
     // Alternative method using CGEvent for system-wide monitoring
     @objc public func startCGEventMonitoring() -> Bool {
-        print("🎹 Starting CGEvent monitoring for fn key")
+        print("Starting CGEvent monitoring for fn key")
         
         // Request accessibility permissions
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         let trusted = AXIsProcessTrustedWithOptions(options)
         
         if !trusted {
-            print("⚠️ Accessibility permissions required for keyboard monitoring")
+            print("Accessibility permissions required for keyboard monitoring")
             print("Please grant accessibility permissions in System Preferences > Security & Privacy > Privacy > Accessibility")
             return false
         }
@@ -112,7 +112,7 @@ import Carbon
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            print("❌ Failed to create event tap")
+            print("Failed to create event tap")
             return false
         }
         
@@ -121,7 +121,7 @@ import Carbon
         CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
         CGEvent.tapEnable(tap: eventTap, enable: true)
         
-        print("✅ CGEvent monitoring started")
+        print("CGEvent monitoring started")
         return true
     }
     
@@ -133,7 +133,7 @@ import Carbon
         
         if fnIsPressed && !isRecording {
             isRecording = true
-            print("🎙️ Fn key PRESSED (CGEvent) - Starting recording")
+            print("Fn key PRESSED (CGEvent) - Starting recording")
             
             DispatchQueue.main.async {
                 NotificationCenter.default.post(
@@ -143,7 +143,7 @@ import Carbon
             }
         } else if !fnIsPressed && isRecording {
             isRecording = false
-            print("🛑 Fn key RELEASED (CGEvent) - Stopping recording")
+            print("Fn key RELEASED (CGEvent) - Stopping recording")
             
             DispatchQueue.main.async {
                 NotificationCenter.default.post(

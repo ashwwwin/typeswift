@@ -39,7 +39,7 @@ public func typeswift_hide_dock_icon() {
         NSApp.activate(ignoringOtherApps: false)
     }
     
-    print("🔄 Dock icon hidden, activation policy set to accessory")
+    print("Dock icon hidden, activation policy set to accessory")
 }
 
 @_cdecl("typeswift_show_dock_icon")
@@ -105,7 +105,7 @@ public func typeswift_reset_first_launch() {
     UserDefaults.standard.removeObject(forKey: "com.typeswift.hasLaunchedBefore")
     UserDefaults.standard.removeObject(forKey: "com.typeswift.hasAskedAboutLogin")
     UserDefaults.standard.synchronize()
-    print("🔄 First launch state reset - next launch will show welcome dialog")
+    print("First launch state reset - next launch will show welcome dialog")
 }
 
 // MARK: - Launch at Login control (for Preferences window)

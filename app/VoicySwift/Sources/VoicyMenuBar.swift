@@ -267,7 +267,7 @@ import ServiceManagement
             task.launch()
             task.waitUntilExit()
             
-            print("✅ Launch agent installed at: \(launchAgentPath.path)")
+            print("Launch agent installed at: \(launchAgentPath.path)")
         } catch {
             print("Failed to install launch agent: \(error)")
         }
@@ -288,7 +288,7 @@ import ServiceManagement
             // Remove the plist file
             try? FileManager.default.removeItem(at: launchAgentPath)
             
-            print("✅ Launch agent removed")
+            print("Launch agent removed")
         }
     }
     

@@ -270,18 +270,18 @@ mod modifiers {
         let start = Instant::now();
         let initial = snapshot();
         if !any_down(&initial) {
-            println!("⌨️ Modifiers already released");
+            tracing::info!("Modifiers already released");
             return true;
         }
-        println!("⌨️ Waiting for modifiers to release: {}", fmt_snapshot(&initial));
+        tracing::info!("Waiting for modifiers to release: {}", fmt_snapshot(&initial));
 
         let deadline = start + Duration::from_millis(timeout_ms);
         loop {
             let now = Instant::now();
             if now >= deadline {
                 let last = snapshot();
-                println!(
-                    "⌛ Modifier wait timeout after {}ms, still down: {}",
+                tracing::warn!(
+                    "Modifier wait timeout after {}ms, still down: {}",
                     (now - start).as_millis(),
                     fmt_snapshot(&last)
                 );
@@ -289,7 +289,7 @@ mod modifiers {
             }
             let snap = snapshot();
             if !any_down(&snap) {
-                println!("✅ Modifiers released after {}ms", (now - start).as_millis());
+                tracing::info!("Modifiers released after {}ms", (now - start).as_millis());
                 return true;
             }
             thread::sleep(Duration::from_millis(8));

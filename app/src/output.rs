@@ -4,6 +4,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
+use tracing::{info, warn, error, debug};
 
 /// Optimized typing system with single worker thread
 pub struct TypingQueue {
@@ -20,7 +21,7 @@ enum TypingCommand {
 
 impl TypingQueue {
     pub fn new(use_direct_execution: bool) -> Self {
-        println!("🧵 TypingQueue init: worker_thread={}", use_direct_execution);
+        info!("TypingQueue init: worker_thread={}", use_direct_execution);
         if use_direct_execution {
             // Direct execution mode: use a single worker thread instead of spawning per-operation
             let (sender, receiver) = mpsc::channel();
@@ -45,7 +46,7 @@ impl TypingQueue {
     }
     
     fn worker_loop(receiver: Receiver<TypingCommand>) {
-        println!("🧵 Typing worker started");
+        info!("Typing worker started");
         // Track consecutive failures for diagnostics
         let mut consecutive_failures = 0u32;
         const MAX_CONSECUTIVE_FAILURES: u32 = 5;
@@ -53,8 +54,8 @@ impl TypingQueue {
         while let Ok(command) = receiver.recv() {
             match command {
                 TypingCommand::Type { op_id, text, add_space } => {
-                    println!(
-                        "✉️  Typing worker received op_id={}, len={}, add_space={}",
+                    debug!(
+                        "Typing worker received op_id={}, len={}, add_space={}",
                         op_id,
                         text.len(),
                         add_space
@@ -62,35 +63,35 @@ impl TypingQueue {
                     // Create a fresh Enigo instance per operation to avoid stale event sources
                     let mut enigo = match Enigo::new(&Settings::default()) {
                         Ok(e) => {
-                            println!("🔧 Enigo created for op_id={}", op_id);
+                            debug!("Enigo created for op_id={}", op_id);
                             e
                         }
                         Err(e) => {
-                            eprintln!("❌ Failed to initialize Enigo (op_id={}): {}", op_id, e);
+                            error!("Failed to initialize Enigo (op_id={}): {}", op_id, e);
                             consecutive_failures = consecutive_failures.saturating_add(1);
                             if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                                eprintln!("⚠️ Repeated typing failures ({}).", consecutive_failures);
+                                warn!("Repeated typing failures ({})", consecutive_failures);
                             }
                             continue;
                         }
                     };
 
                     let success = Self::type_with_retry(&mut enigo, &text, add_space);
-                    println!("🏷️  op_id={} typing result: {}", op_id, success);
+                    debug!("op_id={} typing result: {}", op_id, success);
                     if success {
-                        println!("🎉 op_id={} typing complete", op_id);
+                        info!("op_id={} typing complete", op_id);
                     }
                     if success {
                         consecutive_failures = 0;
                     } else {
                         consecutive_failures = consecutive_failures.saturating_add(1);
                         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                            eprintln!("⚠️ Repeated typing failures ({}).", consecutive_failures);
+                            warn!("Repeated typing failures ({})", consecutive_failures);
                         }
                     }
                 }
                 TypingCommand::Shutdown => {
-                    println!("🛑 Typing worker shutting down");
+                    info!("Typing worker shutting down");
                     break;
                 }
             }
@@ -101,11 +102,11 @@ impl TypingQueue {
         const MAX_RETRIES: u32 = 2;
         
         for attempt in 0..=MAX_RETRIES {
-            println!("⌨️  Attempt {}/{} (len={}, add_space={})", attempt + 1, MAX_RETRIES + 1, text.len(), add_space);
+            debug!("Typing attempt {}/{} (len={}, add_space={})", attempt + 1, MAX_RETRIES + 1, text.len(), add_space);
             // Add space first if requested, but do not fail the whole operation on space failure
             if add_space {
                 if let Err(e) = enigo.text(" ") {
-                    eprintln!("⚠️ Failed to type leading space on attempt {}: {}", attempt + 1, e);
+                    warn!("Failed to type leading space on attempt {}: {}", attempt + 1, e);
                 }
             }
 
@@ -113,11 +114,11 @@ impl TypingQueue {
             if !text.is_empty() {
                 match enigo.text(text) {
                     Ok(()) => {
-                        println!("✅ enigo.text() OK on attempt {}", attempt + 1);
+                        debug!("enigo.text() OK on attempt {}", attempt + 1);
                         return true;
                     }
                     Err(e) => {
-                        eprintln!("❌ enigo.text() failed on attempt {}: {}", attempt + 1, e);
+                        error!("enigo.text() failed on attempt {}: {}", attempt + 1, e);
                     }
                 }
             } else {
@@ -145,7 +146,7 @@ impl TypingQueue {
             static NEXT_OP_ID: AtomicU64 = AtomicU64::new(1);
             let op_id = NEXT_OP_ID.fetch_add(1, Ordering::Relaxed);
             let text_len = text.len();
-            println!("📨 queue_typing op_id={}, len={}, add_space={}", op_id, text_len, add_space);
+            debug!("queue_typing op_id={}, len={}, add_space={}", op_id, text_len, add_space);
             sender
                 .send(TypingCommand::Type { op_id, text, add_space })
                 .map_err(|e| VoicyError::WindowOperationFailed(
@@ -153,7 +154,7 @@ impl TypingQueue {
                 ))?;
 
             if text_len > 0 {
-                println!("💬 Queued typing ({} chars)", text_len);
+                info!("Queued typing ({} chars)", text_len);
             }
         } else {
             // Main thread mode - execute directly with cached Enigo
@@ -173,7 +174,7 @@ impl TypingQueue {
         // Type with error handling; do not fail entire operation if space fails
         if add_space {
             if let Err(e) = enigo.text(" ") {
-                eprintln!("⚠️ Failed to type leading space: {}", e);
+                warn!("Failed to type leading space: {}", e);
             }
         }
 
@@ -181,7 +182,7 @@ impl TypingQueue {
             enigo.text(&text).map_err(|e|
                 VoicyError::WindowOperationFailed(format!("Failed to type text: {}", e))
             )?;
-            println!("💬 Typed: \"{}\"", text);
+            info!("Typed: {} chars", text.len());
         }
         
         Ok(())
@@ -199,7 +200,7 @@ impl TypingQueue {
     
     pub fn initialize_on_main_thread(&self) -> VoicyResult<()> {
         if self.sender.is_some() {
-            println!("✅ Typing queue using optimized worker thread");
+            info!("Typing queue using optimized worker thread");
             return Ok(());
         }
         
@@ -209,7 +210,7 @@ impl TypingQueue {
                 format!("Failed to initialize Enigo: {}", e)
             ))?;
         
-        println!("✅ Typing queue initialized on main thread");
+        info!("Typing queue initialized on main thread");
         Ok(())
     }
 }
@@ -224,7 +225,7 @@ impl Drop for TypingQueue {
             if let Some(handle) = self.worker_handle.take() {
                 let _ = handle.join();
             }
-            println!("🧵 Typing worker stopped by owner drop");
+            info!("Typing worker stopped by owner drop");
         }
     }
 }
@@ -242,53 +243,53 @@ impl Clone for TypingQueue {
 
 // Keep diagnostic function for compatibility
 pub fn run_typing_diagnostic() {
-    println!("🔍 Running typing diagnostic...");
+    info!("Running typing diagnostic...");
     
-    println!("\n1. Testing Enigo initialization...");
+    info!("1. Testing Enigo initialization...");
     match Enigo::new(&Settings::default()) {
         Ok(mut enigo) => {
-            println!("   ✅ Enigo initialized successfully");
+            info!("Enigo initialized successfully");
             
-            println!("\n2. Testing basic typing (5-second delay)...");
-            println!("   📋 Please switch to a text editor (TextEdit, Notes, etc.)");
-            println!("   ⏰ Typing test will start in 5 seconds...");
+            info!("2. Testing basic typing (5-second delay)...");
+            info!("Please switch to a text editor (TextEdit, Notes, etc.)");
+            info!("Typing test will start in 5 seconds...");
             
             for i in (1..=5).rev() {
-                println!("   ⏳ {}...", i);
+                info!("{}...", i);
                 thread::sleep(Duration::from_secs(1));
             }
             
-            println!("   🚀 Attempting to type...");
+            info!("Attempting to type...");
             
             match enigo.text("Hello from Typeswift diagnostic test!") {
                 Ok(()) => {
-                    println!("   ✅ Enigo.text() returned successfully");
-                    println!("   ❓ If you don't see text in your editor, it's a permissions issue");
+                    info!("Enigo.text() returned successfully");
+                    warn!("If you don't see text in your editor, it's a permissions issue");
                 }
                 Err(e) => {
-                    println!("   ❌ Enigo.text() failed with error: {}", e);
+                    error!("Enigo.text() failed with error: {}", e);
                 }
             }
             
-            println!("\n3. Testing individual key simulation...");
+            info!("3. Testing individual key simulation...");
             thread::sleep(Duration::from_millis(500));
             
             let test_chars = ['T', 'e', 's', 't'];
             for ch in test_chars {
                 match enigo.key(enigo::Key::Unicode(ch), enigo::Direction::Click) {
-                    Ok(()) => println!("   ✅ Key '{}' sent successfully", ch),
-                    Err(e) => println!("   ❌ Key '{}' failed: {}", ch, e),
+                    Ok(()) => info!("Key '{}' sent successfully", ch),
+                    Err(e) => error!("Key '{}' failed: {}", ch, e),
                 }
                 thread::sleep(Duration::from_millis(100));
             }
         }
         Err(e) => {
-            println!("   ❌ Failed to initialize Enigo: {}", e);
+            error!("Failed to initialize Enigo: {}", e);
         }
     }
     
-    println!("\n4. System Information:");
-    println!("   📱 Platform: macOS");
-    println!("   🔒 Accessibility permissions required");
-    println!("\n✅ Diagnostic complete!");
+    info!("4. System Information:");
+    info!("Platform: macOS");
+    info!("Accessibility permissions required");
+    info!("Diagnostic complete!");
 }

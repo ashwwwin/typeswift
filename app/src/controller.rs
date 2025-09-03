@@ -8,6 +8,7 @@ use crate::window::WindowManager;
 use crate::platform::macos::ffi as menubar_ffi;
 use crossbeam_channel::Receiver;
 use std::sync::{Arc, Mutex};
+use tracing::{info, warn, error, debug};
 
 /// Central controller that owns the app orchestration and processes events.
 pub struct AppController {
@@ -24,14 +25,14 @@ impl AppController {
 
         // Initialize audio processor early so errors surface, but don't crash the app
         let mut audio_processor = AudioProcessor::new(config.clone());
-        println!("🚀 Initializing audio system...");
+        info!("Initializing audio system...");
         if let Err(e) = audio_processor.initialize() {
-            eprintln!(
-                "❌ Failed to initialize audio system: {}\n   Typeswift will still start but recording won't work until model loads",
+            error!(
+                "Failed to initialize audio system: {}. Typeswift will still start but recording won't work until model loads",
                 e
             );
         } else {
-            println!("✅ Audio system initialized successfully");
+            info!("Audio system initialized successfully");
         }
 
         let typing_queue = TypingQueue::new(true);
@@ -62,7 +63,7 @@ impl AppController {
         } = self;
 
         std::thread::spawn(move || {
-            println!("🔄 Controller started");
+            info!("Controller started");
             loop {
                 match receiver.recv() {
                     Ok(event) => {
@@ -74,11 +75,11 @@ impl AppController {
                             &config,
                             event,
                         ) {
-                            eprintln!("❌ Failed to handle event: {}", e);
+                            error!("Failed to handle event: {}", e);
                         }
                     }
                     Err(_) => {
-                        eprintln!("⚠️ Event channel disconnected, controller stopping");
+                        warn!("Event channel disconnected, controller stopping");
                         break;
                     }
                 }
@@ -94,7 +95,7 @@ impl AppController {
         config: &Arc<parking_lot::RwLock<Config>>,
         event: HotkeyEvent,
     ) -> VoicyResult<()> {
-        println!("🎬 Controller handling event: {:?}", event);
+        info!("Controller handling event: {:?}", event);
         match event {
             HotkeyEvent::OpenPreferences => {
                 // Handled by UI layer to open a separate GPUI window.
@@ -102,7 +103,7 @@ impl AppController {
             }
             HotkeyEvent::PushToTalkPressed => {
                 if state.can_start_recording() {
-                    println!("🎙️ Push-to-talk PRESSED - Starting recording");
+                    info!("Push-to-talk PRESSED - Starting recording");
                     state.set_recording_state(RecordingState::Recording);
                     state.clear_transcription();
                     window_manager.show_without_focus()?;
@@ -114,12 +115,12 @@ impl AppController {
                         audio.start_recording()?;
                     }
                 } else {
-                    println!("⚠️ Cannot start recording, state: {:?}", state.get_recording_state());
+                    warn!("Cannot start recording, state: {:?}", state.get_recording_state());
                 }
             }
             HotkeyEvent::PushToTalkReleased => {
                 if state.can_stop_recording() {
-                    println!("🛑 Push-to-talk RELEASED - Stopping recording");
+                    info!("Push-to-talk RELEASED - Stopping recording");
                     state.set_recording_state(RecordingState::Processing);
                     // Ensure our window is hidden and focus returns before typing
                     window_manager.hide_and_deactivate_blocking()?;
@@ -140,33 +141,29 @@ impl AppController {
                         };
 
                         // Ensure PTT modifiers are fully released and focus returned before typing
-                        println!("⏱️ Waiting for modifier release before typing...");
-                        let _ = menubar_ffi::wait_modifiers_released(300);
+                            info!("Waiting for modifier release before typing...");
+                            let _ = menubar_ffi::wait_modifiers_released(300);
                         // Small delay for app focus settle
                         std::thread::sleep(std::time::Duration::from_millis(80));
-                        println!("⌨️ Queueing typing: len={}, add_space={}", final_text.len(), config.read().output.add_space_between_utterances);
+                        info!("Queueing typing: len={}, add_space={} ", final_text.len(), config.read().output.add_space_between_utterances);
 
                         let typing_enabled = config.read().output.enable_typing;
-                        println!(
-                            "🔎 Typing decision -> enabled: {}, text_len: {}",
-                            typing_enabled,
-                            final_text.len()
-                        );
+                        debug!("Typing decision -> enabled: {}, text_len: {}", typing_enabled, final_text.len());
 
                         if !final_text.is_empty() && typing_enabled {
                             let add_space = config.read().output.add_space_between_utterances;
-                            println!("💬 Typing final text ({} chars)", final_text.len());
+                            info!("Typing final text ({} chars)", final_text.len());
                             match typing_queue.queue_typing(final_text.clone(), add_space) {
-                                Ok(()) => println!("✅ Typing queued successfully"),
-                                Err(e) => eprintln!("❌ Failed to queue typing: {}", e),
+                                Ok(()) => info!("Typing queued successfully"),
+                                Err(e) => error!("Failed to queue typing: {}", e),
                             }
                         }
 
                         state.set_recording_state(RecordingState::Idle);
-                        println!("🏁 Processing complete; state=Idle");
+                        info!("Processing complete; state=Idle");
                     });
                 } else {
-                    println!("⚠️ Cannot stop recording, state: {:?}", state.get_recording_state());
+                    warn!("Cannot stop recording, state: {:?}", state.get_recording_state());
                 }
             }
             HotkeyEvent::ToggleWindow => {

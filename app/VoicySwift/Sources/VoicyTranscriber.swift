@@ -40,7 +40,7 @@ import FluidAudio
                             // Try loading from specified path
                             let url = URL(fileURLWithPath: path)
                             models = try await AsrModels.load(from: url)
-                            print("✅ Models loaded from: \(path)")
+                            print("Models loaded from: \(path)")
                         } else {
                             // Check common local paths first
                             // Optional override via env var: TYPESWIFT_MODELS=/path/to/model_dir
@@ -68,10 +68,10 @@ import FluidAudio
                                 if FileManager.default.fileExists(atPath: possiblePath.path) {
                                     do {
                                         loadedModels = try await AsrModels.load(from: possiblePath)
-                                        print("✅ Models loaded from: \(possiblePath.path)")
+                                        print("Models loaded from: \(possiblePath.path)")
                                         break
                                     } catch {
-                                        print("⚠️ Failed to load from \(possiblePath.path): \(error)")
+                                        print("Failed to load from \(possiblePath.path): \(error)")
                                         continue
                                     }
                                 }
@@ -81,7 +81,7 @@ import FluidAudio
                                 models = existingModels
                             } else {
                                 // Download models if not found locally
-                                print("📥 Models not found locally. Downloading...")
+                                print("Models not found locally. Downloading...")
                                 let downloadedPath = try await AsrModels.download()
                                 
                                 // Save to Application Support for future use
@@ -99,25 +99,25 @@ import FluidAudio
                                             try FileManager.default.removeItem(at: targetPath)
                                         }
                                         try FileManager.default.copyItem(at: downloadedPath, to: targetPath)
-                                        print("💾 Models saved to: \(targetPath.path)")
+                                        print("Models saved to: \(targetPath.path)")
                                     } catch {
-                                        print("⚠️ Failed to save models to Application Support: \(error)")
+                                        print("Failed to save models to Application Support: \(error)")
                                     }
                                 }
                                 
                                 models = try await AsrModels.load(from: downloadedPath)
-                                print("✅ Models downloaded and loaded")
+                                print("Models downloaded and loaded")
                             }
                         }
                         
                         // Initialize ASR Manager with models
                         try await self.asrManager?.initialize(models: models)
                         self.isInitialized = true
-                        print("✅ Transcriber initialized")
+                        print("Transcriber initialized")
                         
                         continuation.resume(returning: 0)
                     } catch {
-                        print("❌ Initialization failed: \(error)")
+                        print("Initialization failed: \(error)")
                         continuation.resume(returning: -1)
                     }
                 }
@@ -128,7 +128,7 @@ import FluidAudio
     /// Transcribe audio samples
     @objc public func transcribe(samples: UnsafePointer<Float>, sampleCount: Int) async -> UnsafeMutablePointer<CChar>? {
         guard isInitialized, let asrManager = asrManager else {
-            print("❌ Transcriber not initialized")
+            print("Transcriber not initialized")
             return strdup("")
         }
         
@@ -142,12 +142,12 @@ import FluidAudio
             // Convert Swift String to C string (caller must free)
             let cString = strdup(result.text)
             
-            print("📝 Transcribed: \(result.text)")
+            print("Transcribed: \(result.text)")
             print("   Confidence: \(result.confidence)")
             
             return cString
         } catch {
-            print("❌ Transcription failed: \(error)")
+            print("Transcription failed: \(error)")
             return strdup("")
         }
     }
@@ -158,7 +158,7 @@ import FluidAudio
             await asrManager.cleanup()
             self.asrManager = nil
             self.isInitialized = false
-            print("🧹 Transcriber cleaned up")
+            print("Transcriber cleaned up")
         }
     }
     

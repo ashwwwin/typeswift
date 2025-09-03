@@ -1,3 +1,4 @@
+#![allow(unexpected_cfgs)]
 use crate::error::{VoicyError, VoicyResult};
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -6,6 +7,7 @@ use cocoa::base::{id, nil};
 use cocoa::appkit::NSApp;
 use dispatch::Queue;
 use objc::{msg_send, sel, sel_impl};
+use tracing::{info, warn, error};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WindowState {
@@ -39,40 +41,40 @@ impl WindowManager {
     }
     
     pub fn show_without_focus(&self) -> VoicyResult<()> {
-        println!("🪟 Showing window without focus");
+        info!("Showing window without focus");
         let state = self.state.clone();
         Queue::main().exec_async(move || {
             if let Err(e) = show_window_macos() {
-                eprintln!("❌ Failed to show window: {}", e);
+                error!("Failed to show window: {}", e);
                 return;
             }
             // Explicitly deactivate so we never steal focus
             if let Err(e) = deactivate_app_macos() {
-                eprintln!("⚠️ Failed to deactivate app after show: {}", e);
+                warn!("Failed to deactivate app after show: {}", e);
             }
             *state.write() = WindowState::Visible;
-            println!("✅ Window shown (no focus steal)");
+            info!("Window shown (no focus steal)");
         });
         Ok(())
     }
     
     pub fn hide(&self) -> VoicyResult<()> {
-        println!("🪟 Hiding window");
+        info!("Hiding window");
         let state = self.state.clone();
         Queue::main().exec_async(move || {
             if let Err(e) = hide_window_macos() {
-                eprintln!("❌ Failed to hide window: {}", e);
+                error!("Failed to hide window: {}", e);
                 return;
             }
             *state.write() = WindowState::Hidden;
-            println!("✅ Window hidden");
+            info!("Window hidden");
         });
         Ok(())
     }
 
     // Hide window and deactivate the app, blocking until done on the main thread
     pub fn hide_and_deactivate_blocking(&self) -> VoicyResult<()> {
-        println!("🪟 Hiding window and deactivating app (blocking)");
+        info!("Hiding window and deactivating app (blocking)");
 
         use std::sync::mpsc;
         use std::time::Duration;
@@ -82,16 +84,16 @@ impl WindowManager {
 
         Queue::main().exec_async(move || {
             if let Err(e) = hide_window_macos() {
-                eprintln!("❌ Failed to hide window: {}", e);
+                error!("Failed to hide window: {}", e);
                 let _ = tx.send(());
                 return;
             }
             // Deactivate the app so the previous app regains focus
             if let Err(e) = deactivate_app_macos() {
-                eprintln!("⚠️ Failed to deactivate app: {}", e);
+                warn!("Failed to deactivate app: {}", e);
             }
             *state.write() = WindowState::Hidden;
-            println!("✅ Window hidden and app deactivated");
+            info!("Window hidden and app deactivated");
             let _ = tx.send(());
         });
 
@@ -118,7 +120,7 @@ impl WindowManager {
     pub fn focus_preferences() -> VoicyResult<()> {
         Queue::main().exec_async(move || {
             if let Err(e) = focus_preferences_window_macos() {
-                eprintln!("❌ Failed to focus preferences window: {}", e);
+                error!("Failed to focus preferences window: {}", e);
             }
         });
         Ok(())
@@ -151,7 +153,7 @@ fn setup_window_properties_macos() -> VoicyResult<()> {
             // const YES: bool = true;
             // let _: () = msg_send![window, setIgnoresMouseEvents:YES];
             
-            println!("✅ Window configured: always on top, non-interactive, no focus steal");
+            tracing::info!("Window configured: always on top, non-interactive, no focus steal");
         }
     }
     

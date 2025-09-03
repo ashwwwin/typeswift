@@ -10,6 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::platform::macos::ffi::{init_keyboard_monitor, shutdown_keyboard_monitor, register_push_to_talk_callback};
+use tracing::{info, warn, error, debug};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HotkeyEvent {
@@ -62,15 +63,15 @@ impl HotkeyHandler {
                 let mut uses_fn_key = self.uses_fn_key.lock().unwrap();
                 *uses_fn_key = true;
             }
-            println!("✅ Using native macOS monitor for fn key (hold to record)");
+            info!("Using native macOS monitor for fn key (hold to record)");
             // If event sender is available (event loop started), ensure callback is registered
             if let Some(sender) = self.event_sender.lock().unwrap().clone() {
                 // Initialize the keyboard monitor (idempotent in Swift layer) and register callback
                 if init_keyboard_monitor() {
                     register_push_to_talk_callback(sender);
-                    println!("✅ Registered fn key callback");
+                    info!("Registered fn key callback");
                 } else {
-                    eprintln!("❌ Failed to initialize fn key monitoring. Please grant accessibility permissions.");
+                    error!("Failed to initialize fn key monitoring. Please grant accessibility permissions.");
                 }
             }
             
@@ -80,7 +81,7 @@ impl HotkeyHandler {
                 self.manager.register(toggle_hotkey.clone())
                     .map_err(|e| VoicyError::HotkeyRegistrationFailed(format!("Failed to register toggle: {}", e)))?;
                 *self.toggle_hotkey.lock().unwrap() = Some(toggle_hotkey);
-                println!("✅ Registered toggle window: {}", toggle_key);
+                info!("Registered toggle window: {}", toggle_key);
             }
             
             return Ok(());
@@ -95,18 +96,18 @@ impl HotkeyHandler {
             if *uses_fn_key {
                 shutdown_keyboard_monitor();
                 *uses_fn_key = false;
-                println!("🧹 Disabled fn key monitor");
+                info!("Disabled fn key monitor");
             }
         }
         *self.push_to_talk_hotkey.lock().unwrap() = Some(push_to_talk_hotkey);
-        println!("✅ Registered push-to-talk: {} (hold to record)", config.push_to_talk);
+        info!("Registered push-to-talk: {} (hold to record)", config.push_to_talk);
 
         if let Some(ref toggle_key) = config.toggle_window {
             let toggle_hotkey = parse_hotkey(toggle_key)?;
             self.manager.register(toggle_hotkey.clone())
                 .map_err(|e| VoicyError::HotkeyRegistrationFailed(format!("Failed to register toggle: {}", e)))?;
             *self.toggle_hotkey.lock().unwrap() = Some(toggle_hotkey);
-            println!("✅ Registered toggle window: {}", toggle_key);
+            info!("Registered toggle window: {}", toggle_key);
         }
 
         
@@ -130,9 +131,9 @@ impl HotkeyHandler {
             if init_keyboard_monitor() {
                 // Register callback for push-to-talk events
                 register_push_to_talk_callback(sender_clone);
-                println!("✅ macOS fn key monitoring initialized");
+                info!("macOS fn key monitoring initialized");
             } else {
-                eprintln!("❌ Failed to initialize fn key monitoring. Please grant accessibility permissions.");
+                error!("Failed to initialize fn key monitoring. Please grant accessibility permissions.");
             }
         }
         
@@ -141,12 +142,12 @@ impl HotkeyHandler {
         let is_push_to_talk_active = Arc::new(Mutex::new(false));
 
         thread::spawn(move || {
-            println!("🚀 Starting hotkey event loop thread");
+            info!("Starting hotkey event loop thread");
             let rx = GlobalHotKeyEvent::receiver();
             loop {
                 match rx.recv() {
                     Ok(event) => {
-                        println!("🔑 Received hotkey event: {:?}", event);
+                        debug!("Received hotkey event: {:?}", event);
                         match event.state {
                             HotKeyState::Pressed => {
                                 if let Some(hotkey_event) = handle_hotkey_press(
@@ -155,9 +156,9 @@ impl HotkeyHandler {
                                     &push_to_talk_hotkey,
                                     &is_push_to_talk_active,
                                 ) {
-                                    println!("📤 Sending event: {:?}", hotkey_event);
+                                    debug!("Sending event: {:?}", hotkey_event);
                                     if let Err(e) = sender.send(hotkey_event) {
-                                        eprintln!("❌ Failed to send hotkey event: {}", e);
+                                        error!("Failed to send hotkey event: {}", e);
                                     }
                                 }
                             }
@@ -167,16 +168,16 @@ impl HotkeyHandler {
                                     &push_to_talk_hotkey,
                                     &is_push_to_talk_active,
                                 ) {
-                                    println!("📤 Sending event: {:?}", hotkey_event);
+                                    debug!("Sending event: {:?}", hotkey_event);
                                     if let Err(e) = sender.send(hotkey_event) {
-                                        eprintln!("❌ Failed to send hotkey event: {}", e);
+                                        error!("Failed to send hotkey event: {}", e);
                                     }
                                 }
                             }
                         }
                     }
                     Err(err) => {
-                        eprintln!("⚠️ GlobalHotKeyEvent receiver error: {:?}", err);
+                        warn!("GlobalHotKeyEvent receiver error: {:?}", err);
                         // Brief backoff before retry loop to prevent tight spin on errors
                         thread::sleep(Duration::from_millis(50));
                     }
@@ -199,7 +200,7 @@ fn handle_hotkey_press(
             let mut is_active = is_push_to_talk_active.lock().unwrap();
             if !*is_active {
                 *is_active = true;
-                println!("🎙️ Push-to-talk PRESSED");
+                info!("Push-to-talk PRESSED");
                 return Some(HotkeyEvent::PushToTalkPressed);
             }
         }
@@ -207,7 +208,7 @@ fn handle_hotkey_press(
 
     if let Some(ref toggle) = *toggle_hotkey.lock().unwrap() {
         if toggle.id() == hotkey_id {
-            println!("🔄 Toggle window hotkey pressed");
+            info!("Toggle window hotkey pressed");
             return Some(HotkeyEvent::ToggleWindow);
         }
     }
@@ -227,7 +228,7 @@ fn handle_hotkey_release(
             let mut is_active = is_push_to_talk_active.lock().unwrap();
             if *is_active {
                 *is_active = false;
-                println!("🛑 Push-to-talk RELEASED");
+                info!("Push-to-talk RELEASED");
                 return Some(HotkeyEvent::PushToTalkReleased);
             }
         }
@@ -265,7 +266,7 @@ impl Drop for HotkeyHandler {
     fn drop(&mut self) {
         if *self.uses_fn_key.lock().unwrap() {
             shutdown_keyboard_monitor();
-            println!("🧹 Cleaned up keyboard monitor");
+            info!("Cleaned up keyboard monitor");
         }
     }
 }

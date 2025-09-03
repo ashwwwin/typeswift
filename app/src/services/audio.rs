@@ -9,6 +9,7 @@ use std::sync::Arc;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::mpsc::{channel, Sender};
 use std::thread::JoinHandle;
+use tracing::{info, warn, error};
 
 pub struct AudioCapture {
     consumer: Arc<parking_lot::Mutex<HeapCons<f32>>>,
@@ -76,8 +77,8 @@ impl AudioCapture {
             let device_sample_rate = supported_config.sample_rate().0;
             let channels = supported_config.channels() as usize;
 
-            println!(
-                "📊 Audio device: {} Hz, {} channels → {} Hz",
+            info!(
+                "Audio device: {} Hz, {} channels → {} Hz",
                 device_sample_rate, channels, target_sample_rate
             );
 
@@ -145,8 +146,8 @@ impl AudioCapture {
                                     if producer.try_push(sample).is_err() {
                                         overflow_count += 1;
                                         if overflow_count % 10000 == 0 {
-                                            eprintln!(
-                                                "⚠️ Audio buffer overflow: {} samples dropped",
+                                            warn!(
+                                                "Audio buffer overflow: {} samples dropped",
                                                 overflow_count
                                             );
                                         }
@@ -160,8 +161,8 @@ impl AudioCapture {
                             if producer.try_push(sample).is_err() {
                                 overflow_count += 1;
                                 if overflow_count % 10000 == 0 {
-                                    eprintln!(
-                                        "⚠️ Audio buffer overflow: {} samples dropped",
+                                    warn!(
+                                        "Audio buffer overflow: {} samples dropped",
                                         overflow_count
                                     );
                                 }
@@ -169,7 +170,7 @@ impl AudioCapture {
                         }
                     }
                 },
-                |err| eprintln!("❌ Audio stream error: {}", err),
+                |err| error!("Audio stream error: {}", err),
                 None,
             ) {
                 Ok(s) => s,
@@ -208,13 +209,13 @@ impl AudioCapture {
 
     pub fn start_recording(&self) -> VoicyResult<()> {
         *self.is_recording.write() = true;
-        println!("🎤 Audio capture started");
+        info!("Audio capture started");
         Ok(())
     }
 
     pub fn stop_recording(&self) -> VoicyResult<()> {
         *self.is_recording.write() = false;
-        println!("🎤 Audio capture stopped");
+        info!("Audio capture stopped");
         Ok(())
     }
 
@@ -312,7 +313,7 @@ impl Transcriber {
 
         // FluidAudio works at 16kHz
         let sample_rate = 16000;
-        println!("✅ Swift transcriber initialized ({}Hz)", sample_rate);
+        info!("Swift transcriber initialized ({}Hz)", sample_rate);
 
         Ok(Self {
             swift_transcriber,
@@ -326,7 +327,7 @@ impl Transcriber {
 
     pub fn start_session(&self) -> VoicyResult<()> {
         self.audio_buffer.lock().clear();
-        println!("🎙️ Transcription session started (batch mode)");
+        info!("Transcription session started (batch mode)");
         Ok(())
     }
 
@@ -354,12 +355,12 @@ impl Transcriber {
         };
 
         if audio.is_empty() {
-            println!("🛑 Transcription session ended (no audio)");
+            info!("Transcription session ended (no audio)");
             return Ok(String::new());
         }
 
-        println!(
-            "🎯 Processing {} samples ({}s)",
+        info!(
+            "Processing {} samples ({}s)",
             audio.len(),
             audio.len() / self.sample_rate as usize
         );
@@ -368,7 +369,7 @@ impl Transcriber {
             VoicyError::TranscriptionFailed(format!("Swift transcription failed: {}", e))
         })?;
 
-        println!("🛑 Transcription session ended");
+        info!("Transcription session ended");
         Ok(text.trim().to_string())
     }
 
@@ -409,7 +410,7 @@ impl AudioProcessor {
         let audio_capture = AudioCapture::new(target_sample_rate)?;
         self.transcriber = Some(transcriber);
         self.audio_capture = Some(audio_capture);
-        println!("✅ Audio processor initialized");
+        info!("Audio processor initialized");
         Ok(())
     }
 
@@ -437,8 +438,8 @@ impl AudioProcessor {
                 self.audio_buffer.extend_from_slice(&chunk);
             }
             if !self.audio_buffer.is_empty() {
-                println!(
-                    "🎯 Processing {} samples ({}s @ 16kHz)",
+                info!(
+                    "Processing {} samples ({}s @ 16kHz)",
                     self.audio_buffer.len(),
                     self.audio_buffer.len() / 16000
                 );

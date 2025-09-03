@@ -16,9 +16,10 @@ use typeswift::state::AppStateManager;
 use typeswift::window::WindowManager;
 use crossbeam_channel::bounded;
 use typeswift::platform::macos::ffi as menubar_ffi;
+use tracing::{info, warn, error};
 
 struct TypeswiftView {
-    state: AppStateManager,
+    _state: AppStateManager,
 }
 
 struct PreferencesView {
@@ -325,7 +326,7 @@ fn main() {
 
     // Register hotkeys
     if let Err(e) = hotkey_handler.register_hotkeys(&config.hotkeys) {
-        eprintln!("⚠️ Failed to register hotkeys: {}", e);
+        error!("Failed to register hotkeys: {}", e);
         return;
     }
 
@@ -409,8 +410,8 @@ fn main() {
                     ..Default::default()
                 },
                 move |_window, cx| {
-                    let state = state_for_view.clone();
-                    cx.new(|_cx| TypeswiftView { state })
+                    let _state = state_for_view.clone();
+                    cx.new(|_cx| TypeswiftView { _state })
                 },
             )
             .unwrap();
@@ -421,17 +422,17 @@ fn main() {
         let tx_for_hotkeys = event_tx.clone();
         let ui_tx_hotkeys = ui_tx.clone();
         std::thread::spawn(move || {
-            println!("🔄 Hotkey forwarder started");
+            info!("Hotkey forwarder started");
             while let Ok(event) = hotkey_receiver.recv() {
                 let _ = tx_for_hotkeys.send(event);
                 let _ = ui_tx_hotkeys.send(event);
             }
-            println!("🛑 Hotkey forwarder stopped");
+            info!("Hotkey forwarder stopped");
         });
 
         // Set up window properties
         if let Err(e) = WindowManager::setup_properties() {
-            eprintln!("⚠️ Failed to setup window properties: {}", e);
+            warn!("Failed to setup window properties: {}", e);
         }
 
         // Share state between UI and controller
@@ -439,13 +440,12 @@ fn main() {
 
         // Apply window properties (always-on-top, etc.)
         
-        println!("🚀 Typeswift started with global shortcuts:");
-        println!(
-            "   Push-to-talk: {} (hold to record)",
+        info!(
+            "Typeswift started. Push-to-talk: {} (hold to record)",
             config_clone.hotkeys.push_to_talk
         );
         // Toggle window hotkey setting removed from Preferences UI; still supported if present in config file.
-        println!("✅ Hotkeys forwarding independently of UI");
+        info!("Hotkeys forwarding independently of UI");
 
         // Removed file watcher: config changes now apply immediately where edited (Preferences window and hotkey presets).
 
@@ -494,13 +494,13 @@ fn main() {
                                 *handle_holder_outer.lock().unwrap() = Some(handle.clone());
                                 // Ensure the Preferences window is brought to front on first open
                                 if let Err(e) = typeswift::window::WindowManager::focus_preferences() {
-                                    eprintln!("⚠️ Could not focus preferences window: {}", e);
+                                    warn!("Could not focus preferences window: {}", e);
                                 }
                             });
                         } else {
                             // Already open: bring the Preferences window to front
                             if let Err(e) = typeswift::window::WindowManager::focus_preferences() {
-                                eprintln!("⚠️ Could not focus preferences window: {}", e);
+                                warn!("Could not focus preferences window: {}", e);
                             }
                         }
                     }

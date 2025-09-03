@@ -1,5 +1,6 @@
 use parking_lot::RwLock;
 use std::sync::Arc;
+use tracing::info;
 
 /// Single source of truth for application state
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -36,7 +37,7 @@ impl AppStateManager {
     pub fn set_recording_state(&self, state: RecordingState) {
         let old_state = *self.recording_state.read();
         if old_state != state {
-            println!("📊 State transition: {:?} -> {:?}", old_state, state);
+            info!("State transition: {:?} -> {:?}", old_state, state);
             *self.recording_state.write() = state;
             self.notify_listeners();
         }
