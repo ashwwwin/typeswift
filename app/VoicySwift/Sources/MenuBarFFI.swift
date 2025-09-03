@@ -65,11 +65,7 @@ public func typeswift_show_notification(_ title: UnsafePointer<CChar>, _ message
 @_cdecl("typeswift_set_recording_state")
 public func typeswift_set_recording_state(_ isRecording: Bool) {
     DispatchQueue.main.async {
-        if isRecording {
-            TypeswiftMenuBar.shared.setStatusIcon(systemName: "mic.circle.fill")
-        } else {
-            TypeswiftMenuBar.shared.setStatusIcon(systemName: "mic.fill")
-        }
+        TypeswiftMenuBar.shared.setRecordingState(isRecording)
     }
 }
 

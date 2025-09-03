@@ -7,6 +7,8 @@ import ServiceManagement
     
     private var statusItem: NSStatusItem?
     private var menu: NSMenu?
+    private var baseIcon: NSImage?
+    private var recordingIcon: NSImage?
     
     
     @objc public static let shared = TypeswiftMenuBar()
@@ -50,15 +52,35 @@ import ServiceManagement
                 if fm.fileExists(atPath: envURL.path) { found = NSImage(contentsOf: envURL) }
             }
 
-            if let img = found {
-                img.size = NSSize(width: 18, height: 18)
+            // Cache base and optional recording icon
+            self.baseIcon = found?.sized(to: NSSize(width: 18, height: 18))
+            // Recording variant if present
+            if self.recordingIcon == nil {
+                let recCandidates = [
+                    "menubar_recording.png",
+                    "menubar-recording.png",
+                    "menubar-active.png"
+                ]
+                for name in recCandidates {
+                    // Search same locations as above
+                    if let u = Bundle.main.url(forResource: (name as NSString).deletingPathExtension, withExtension: (name as NSString).pathExtension),
+                       let im = NSImage(contentsOf: u) { self.recordingIcon = im.sized(to: NSSize(width: 18, height: 18)); break }
+                    let resURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(name)")
+                    if fm.fileExists(atPath: resURL.path), let im = NSImage(contentsOf: resURL) { self.recordingIcon = im.sized(to: NSSize(width: 18, height: 18)); break }
+                    if let exe = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent(name), fm.fileExists(atPath: exe.path), let im = NSImage(contentsOf: exe) { self.recordingIcon = im.sized(to: NSSize(width: 18, height: 18)); break }
+                    let cwdURL = URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent(name)
+                    if fm.fileExists(atPath: cwdURL.path), let im = NSImage(contentsOf: cwdURL) { self.recordingIcon = im.sized(to: NSSize(width: 18, height: 18)); break }
+                    if let root = ProcessInfo.processInfo.environment["TYPESWIFT_ASSETS"] {
+                        let p = URL(fileURLWithPath: root).appendingPathComponent(name)
+                        if fm.fileExists(atPath: p.path), let im = NSImage(contentsOf: p) { self.recordingIcon = im.sized(to: NSSize(width: 18, height: 18)); break }
+                    }
+                }
+            }
+
+            if let img = self.baseIcon {
                 button.image = img
                 button.imageScaling = .scaleProportionallyUpOrDown
                 button.image?.isTemplate = false
-            } else {
-                button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Typeswift")
-                button.image?.size = NSSize(width: 18, height: 18)
-                button.image?.isTemplate = true // Adapts to dark/light mode
             }
             // Alternative: Use text emoji
             // button.title = "🎙️"
@@ -404,6 +426,31 @@ import ServiceManagement
                 menu.removeItem(at: menu.items.count - 3)
             }
         }
+    }
+}
+
+// Expose a recording-state API that respects custom icons
+extension TypeswiftMenuBar {
+    @objc public func setRecordingState(_ isRecording: Bool) {
+        guard let button = statusItem?.button else { return }
+        if isRecording {
+            if let rec = recordingIcon {
+                button.image = rec
+                button.image?.isTemplate = false
+                return
+            }
+        }
+        if let base = baseIcon {
+            button.image = base
+            button.image?.isTemplate = false
+        }
+    }
+}
+
+private extension NSImage {
+    func sized(to size: NSSize) -> NSImage {
+        self.size = size
+        return self
     }
 }
 
