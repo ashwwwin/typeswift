@@ -10,7 +10,7 @@ use tracing::{info, warn, error, debug};
 pub struct TypingQueue {
     sender: Option<Sender<TypingCommand>>,
     worker_handle: Option<thread::JoinHandle<()>>,
-    use_direct_execution: bool,
+    use_worker_thread: bool,
 }
 
 #[derive(Debug)]
@@ -20,10 +20,10 @@ enum TypingCommand {
 }
 
 impl TypingQueue {
-    pub fn new(use_direct_execution: bool) -> Self {
-        info!("TypingQueue init: worker_thread={}", use_direct_execution);
-        if use_direct_execution {
-            // Direct execution mode: use a single worker thread instead of spawning per-operation
+    pub fn new(use_worker_thread: bool) -> Self {
+        info!("TypingQueue init: worker_thread={}", use_worker_thread);
+        if use_worker_thread {
+            // Worker thread mode: use a single background worker instead of spawning per-operation
             let (sender, receiver) = mpsc::channel();
             
             let worker_handle = thread::spawn(move || {
@@ -33,14 +33,14 @@ impl TypingQueue {
             Self {
                 sender: Some(sender),
                 worker_handle: Some(worker_handle),
-                use_direct_execution,
+                use_worker_thread,
             }
         } else {
             // Main thread mode: no worker needed
             Self {
                 sender: None,
                 worker_handle: None,
-                use_direct_execution,
+                use_worker_thread,
             }
         }
     }
@@ -236,7 +236,7 @@ impl Clone for TypingQueue {
         Self {
             sender: self.sender.clone(),
             worker_handle: None, // Clones don't own the worker
-            use_direct_execution: self.use_direct_execution,
+            use_worker_thread: self.use_worker_thread,
         }
     }
 }
