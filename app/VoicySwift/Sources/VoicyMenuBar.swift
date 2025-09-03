@@ -353,12 +353,12 @@ import ServiceManagement
                 // User wants to start at login
                 self.enableLaunchAtStartup()
                 self.showNotification(
-                    title: "Launch at Login Enabled",
+                    title: "Launch at startup enabled",
                     text: "Typeswift will start automatically when you log in"
                 )
                 
                 // Update menu item if it exists
-                if let menuItem = self.menu?.item(withTitle: "Launch at Login") {
+                if let menuItem = self.menu?.item(withTitle: "Launch at startup") {
                     menuItem.state = .on
                 }
                 
@@ -392,12 +392,12 @@ import ServiceManagement
             self.enableLaunchAtStartup()
             
             // Update menu item
-            if let menuItem = self.menu?.item(withTitle: "Launch at Login") {
+            if let menuItem = self.menu?.item(withTitle: "Launch at startup") {
                 menuItem.state = .on
             }
             
             self.showNotification(
-                title: "Launch at Login Enabled",
+                title: "Launch at startup enabled",
                 text: "Typeswift will start automatically"
             )
         }

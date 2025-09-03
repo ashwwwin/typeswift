@@ -187,7 +187,7 @@ impl Render for PreferencesView {
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(div().py(px(3.0)).child("Launch at Login"))
+                .child(div().py(px(3.0)).child("Launch at startup"))
                 .child(
                     div()
                         .text_color(if launch_enabled { rgb(0x065f46) } else { rgb(0x7f1d1d) })
