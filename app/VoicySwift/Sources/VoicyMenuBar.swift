@@ -55,12 +55,6 @@ import ServiceManagement
         
         menu?.addItem(NSMenuItem.separator())
         
-        // Launch at startup
-        let launchAtStartupItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtStartup), keyEquivalent: "")
-        launchAtStartupItem.target = self
-        launchAtStartupItem.state = isLaunchAtStartupEnabled() ? .on : .off
-        menu?.addItem(launchAtStartupItem)
-        
         // About
         let aboutItem = NSMenuItem(title: "About Typeswift", action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self
@@ -104,39 +98,15 @@ import ServiceManagement
         alert.runModal()
     }
     
-    @objc private func toggleLaunchAtStartup() {
-        
-        if isLaunchAtStartupEnabled() {
-            // Disable launch at startup
-            disableLaunchAtStartup()
-            
-            // Update menu item
-            if let menuItem = menu?.item(withTitle: "Launch at Login") {
-                menuItem.state = .off
-            }
-            
-            print("❌ Launch at login disabled")
-        } else {
-            // Enable launch at startup
-            enableLaunchAtStartup()
-            
-            // Update menu item
-            if let menuItem = menu?.item(withTitle: "Launch at Login") {
-                menuItem.state = .on
-            }
-            
-            print("✅ Launch at login enabled")
-        }
-    }
     
-    private func isLaunchAtStartupEnabled() -> Bool {
+    func isLaunchAtStartupEnabled() -> Bool {
         // Check if launch agent exists and is loaded
         let launchAgentPath = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents/com.typeswift.app.plist")
         return FileManager.default.fileExists(atPath: launchAgentPath.path)
     }
     
-    private func enableLaunchAtStartup() {
+    func enableLaunchAtStartup() {
         // Modern way using ServiceManagement (macOS 13+)
         if #available(macOS 13.0, *) {
             do {
@@ -152,7 +122,7 @@ import ServiceManagement
         }
     }
     
-    private func disableLaunchAtStartup() {
+    func disableLaunchAtStartup() {
         // Modern way using ServiceManagement (macOS 13+)
         if #available(macOS 13.0, *) {
             do {

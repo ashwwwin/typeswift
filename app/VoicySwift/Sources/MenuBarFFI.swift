@@ -111,3 +111,19 @@ public func voicy_reset_first_launch() {
     UserDefaults.standard.synchronize()
     print("🔄 First launch state reset - next launch will show welcome dialog")
 }
+
+// MARK: - Launch at Login control (for Preferences window)
+
+@_cdecl("voicy_is_launch_at_login_enabled")
+public func voicy_is_launch_at_login_enabled() -> Bool {
+    return VoicyMenuBar.shared.isLaunchAtStartupEnabled()
+}
+
+@_cdecl("voicy_set_launch_at_login_enabled")
+public func voicy_set_launch_at_login_enabled(_ enabled: Bool) {
+    if enabled {
+        VoicyMenuBar.shared.enableLaunchAtStartup()
+    } else {
+        VoicyMenuBar.shared.disableLaunchAtStartup()
+    }
+}

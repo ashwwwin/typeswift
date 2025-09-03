@@ -69,6 +69,8 @@ unsafe extern "C" {
     fn voicy_set_recording_state(is_recording: bool);
     fn voicy_run_app();
     fn voicy_terminate_app();
+    fn voicy_is_launch_at_login_enabled() -> bool;
+    fn voicy_set_launch_at_login_enabled(enabled: bool);
 }
 
 pub struct MenuBarController;
@@ -100,6 +102,12 @@ impl MenuBarController {
     }
     pub fn quit() {
         unsafe { voicy_terminate_app() }
+    }
+    pub fn is_launch_at_login_enabled() -> bool {
+        unsafe { voicy_is_launch_at_login_enabled() }
+    }
+    pub fn set_launch_at_login_enabled(enabled: bool) {
+        unsafe { voicy_set_launch_at_login_enabled(enabled) }
     }
 
 }

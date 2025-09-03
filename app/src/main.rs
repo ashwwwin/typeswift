@@ -91,8 +91,13 @@ impl Render for PreferencesView {
         let ptt = cfg.hotkeys.push_to_talk.clone();
         drop(cfg);
 
-        
+        // Query launch at login status (macOS only)
+        #[cfg(target_os = "macos")]
+        let launch_enabled = voicy::platform::macos::ffi::MenuBarController::is_launch_at_login_enabled();
+        #[cfg(not(target_os = "macos"))]
+        let launch_enabled = false;
 
+        
         let typing_row = {
             let config = self.config.clone();
             let handle_holder = self.handle_holder.clone();
@@ -162,6 +167,36 @@ impl Render for PreferencesView {
                         std::thread::spawn(move || { let _ = to_save.save(path); });
                     }
                     if let Some(handle) = handle_holder2.lock().unwrap().clone() {
+                        let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
+                    }
+                })
+        };
+
+        // Launch at Login toggle (macOS only)
+        #[cfg(target_os = "macos")]
+        let launch_row = {
+            let handle_holder = self.handle_holder.clone();
+            div()
+                .w_full()
+                .mt(px(3.0))
+                .px(px(6.0))
+                .pt(px(2.0))
+                .pb(px(1.0))
+                .rounded_md()
+                .hover(|s| s.bg(rgb(0x1f2937)))
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(div().py(px(3.0)).child("Launch at Login"))
+                .child(
+                    div()
+                        .text_color(if launch_enabled { rgb(0x065f46) } else { rgb(0x7f1d1d) })
+                        .child(if launch_enabled { "On" } else { "Off" })
+                )
+                .on_mouse_down(gpui::MouseButton::Left, move |_, _window, app_cx| {
+                    let new_state = !voicy::platform::macos::ffi::MenuBarController::is_launch_at_login_enabled();
+                    voicy::platform::macos::ffi::MenuBarController::set_launch_at_login_enabled(new_state);
+                    if let Some(handle) = handle_holder.lock().unwrap().clone() {
                         let _ = handle.update(app_cx, |view, _w, _cx| { view.rev = view.rev.wrapping_add(1); });
                     }
                 })
@@ -288,6 +323,12 @@ impl Render for PreferencesView {
             )
             .child(typing_row)
             .child(add_space_row)
+            .child({
+                #[cfg(target_os = "macos")]
+                { launch_row }
+                #[cfg(not(target_os = "macos"))]
+                { div() }
+            })
             .child(ptt_row)
             .child(set_fn_button)
             // .child(div().mt(px(6.0)).child(
