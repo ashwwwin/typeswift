@@ -30,7 +30,7 @@
 
 - macOS 14+ to build the Swift package (bundled app runs on 13+).
 - Xcode 15+ (Swift 5.9 toolchain) and Command Line Tools.
-- Rust 1.74+ (edition 2021).
+- Rust 1.89+
 - Microphone and Accessibility permissions (see below).
 
 ## Quick Start (dev)
@@ -108,6 +108,7 @@ toggle_window = "cmd+shift+y"
 - To provide your own, set an absolute path in `model_name` or set `TYPESWIFT_MODELS=/path/to/model_dir`.
 
 ## Supported Languages
+
 Parakeet TDT v3 (0.6B) supports 25 European languages with automatic detection:
 
 - English, Spanish, French, German, Bulgarian, Croatian, Czech, Danish, Dutch,
